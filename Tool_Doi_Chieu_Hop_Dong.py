@@ -1,15 +1,19 @@
 import streamlit as st
 import docx
 import re
+import unicodedata  # <--- Bổ sung thư viện đồng bộ mã tiếng Việt
 
 # 1. CẤU HÌNH GIAO DIỆN TRANG WEB
 st.set_page_config(page_title="Phần Mềm Kiểm Tra Hợp Đồng", page_icon="🔍", layout="wide")
 
 # 2. CÁC HÀM XỬ LÝ DỮ LIỆU
 def normalize_text(text):
-    """Hàm làm sạch chữ: Xóa mọi khoảng trắng thừa, dấu tab, xuống dòng để so sánh chính xác tuyệt đối"""
+    """Hàm làm sạch chữ: Xóa khoảng trắng và đồng bộ mã tiếng Việt để so sánh chính xác tuyệt đối"""
     if not text: return ""
-    return re.sub(r'\s+', '', str(text)).lower()
+    # Ép tất cả các kiểu gõ tiếng Việt (tổ hợp, dựng sẵn) về chung 1 chuẩn NFC
+    text_nfc = unicodedata.normalize('NFC', str(text))
+    # Xóa khoảng trắng và chuyển chữ thường
+    return re.sub(r'\s+', '', text_nfc).lower()
 
 def extract_input_data(input_text):
     """Hàm bóc tách dữ liệu từ Input gốc của Zalo/Email"""
@@ -83,7 +87,7 @@ def main():
             # 1. Trích xuất Input
             input_data = extract_input_data(input_text)
             
-            # 2. Đọc file Word (Đoạn này đã fix lỗi khoảng trắng ẩn)
+            # 2. Đọc file Word (Đã xử lý khoảng trắng ẩn)
             doc = docx.Document(uploaded_file)
             
             # Đọc đoạn văn thường
@@ -95,7 +99,7 @@ def main():
                 for row in table.rows:
                     row_data = []
                     for cell in row.cells:
-                        # FIX LỖI: Thay thế khoảng trắng ẩn, dấu xuống dòng \n bằng 1 dấu cách duy nhất
+                        # Thay thế khoảng trắng ẩn, dấu xuống dòng \n bằng 1 dấu cách duy nhất
                         clean_cell = re.sub(r'\s+', ' ', cell.text).strip()
                         row_data.append(clean_cell)
                     table_rows_clean.append(" | ".join(row_data))
