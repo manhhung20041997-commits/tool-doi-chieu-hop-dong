@@ -2,6 +2,7 @@ import streamlit as st
 import docx
 import re
 import unicodedata
+import io # Thêm thư viện io để xử lý tải file
 
 # 1. CẤU HÌNH GIAO DIỆN TRANG WEB
 st.set_page_config(page_title="Phần Mềm Kiểm Tra Hợp Đồng", page_icon="🔍", layout="wide")
@@ -60,9 +61,70 @@ def extract_input_data(input_text):
         
     return data
 
-# 3. GIAO DIỆN CHÍNH VÀ XỬ LÝ ĐỐI CHIẾU
+# 3. HÀM TỰ ĐỘNG SỬA FILE WORD (AUTO-FIX)
+def auto_fix_document(doc, input_data):
+    """Hàm tự động tìm và thay thế nội dung sai trong Word bằng nội dung gốc"""
+    
+    # A. Sửa lỗi trong BẢNG (Sản phẩm, Tổng tiền, Bằng chữ)
+    for table in doc.tables:
+        for row in table.rows:
+            cells = row.cells
+            
+            # Sửa thông tin Sản Phẩm
+            if len(cells) >= 5: 
+                ten_sp_word = normalize_text(cells[1].text)
+                if ten_sp_word and len(ten_sp_word) > 10: 
+                    for sp in input_data['san_pham']:
+                        # Nếu đúng dòng sản phẩm đó -> Ghi đè SL và Đơn giá
+                        if normalize_text(sp['ten'])[:30] in ten_sp_word:
+                            cells[3].text = str(sp['so_luong'])
+                            cells[4].text = str(sp['don_gia'])
+                            if len(cells) >= 6:
+                                cells[5].text = str(sp['thanh_tien'])
+            
+            # Sửa Tổng tiền và Bằng chữ (nếu nằm trong bảng)
+            for cell in cells:
+                text_lower = normalize_text(cell.text)
+                if "tổng(đãbaogồmvat)" in text_lower:
+                    cell.text = f"Tổng (đã bao gồm VAT): {input_data['tong_tien']}"
+                elif "bằngchữ:" in text_lower:
+                    cell.text = f"Bằng chữ: {input_data['bang_chu']}"
+
+    # B. Sửa lỗi Thông tin cơ bản (Đoạn văn)
+    # Dùng biến đếm để chỉ sửa thông tin của Bên A (xuất hiện lần đầu), tránh sửa nhầm của Bên B
+    count_mst = 0
+    count_dc = 0
+    count_dd = 0
+    
+    for p in doc.paragraphs:
+        text_lower = p.text.lower()
+        
+        if "bên mua (bên a):" in text_lower:
+            p.text = f"Bên Mua (Bên A): {input_data['cong_ty'].upper()}"
+        elif "mã số thuế" in text_lower:
+            count_mst += 1
+            if count_mst == 1: p.text = f"Mã số thuế\t: {input_data['mst']}"
+        elif "địa chỉ" in text_lower and ("phường" in text_lower or "khu phố" in text_lower or count_dc == 0):
+            count_dc += 1
+            if count_dc == 1: p.text = f"Địa chỉ\t: {input_data['dia_chi']}"
+        elif "đại diện" in text_lower and "chức vụ" in text_lower:
+            count_dd += 1
+            if count_dd == 1: p.text = f"Đại diện\t: {input_data['dai_dien']}\tChức vụ: {input_data['chuc_vu']}"
+        elif "địa điểm giao hàng" in text_lower:
+            p.text = f"4.3.\tĐịa điểm giao hàng: {input_data['dia_chi_giao']}"
+            
+        # Dự phòng trường hợp Tổng tiền/Bằng chữ nằm ngoài bảng
+        elif "tổng (đã bao gồm vat):" in text_lower:
+            p.text = f"Tổng (đã bao gồm VAT): {input_data['tong_tien']}"
+        elif "bằng chữ:" in text_lower and "đồng" in text_lower:
+            p.text = f"Bằng chữ: {input_data['bang_chu']}"
+
+    return doc
+
+# 4. GIAO DIỆN CHÍNH
 def main():
-    st.title("Phần Mềm Kiểm Tra Hợp Đồng (Phiên Bản Tự Động Đối Chiếu Bên A) 🔍")
+    st.title("Phần Mềm Kiểm Tra & Tự Động Sửa Hợp Đồng 🤖")
+    st.markdown("*Tool sẽ quét lỗi. Nếu phát hiện sai sót, tool sẽ tự động tạo ra một file Word hoàn chỉnh mới cho bạn tải về!*")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -73,41 +135,36 @@ def main():
         st.subheader("2. Tải lên file Word Hợp đồng")
         uploaded_file = st.file_uploader("Chọn file .docx", type=["docx"])
         
-    if st.button("🚀 BẮT ĐẦU ĐỐI CHIẾU", use_container_width=True):
+    if st.button("🚀 BẮT ĐẦU ĐỐI CHIẾU & FIX LỖI", use_container_width=True):
         if not input_text or not uploaded_file:
             st.warning("Vui lòng nhập đủ Thông tin gốc và Tải lên file Word!")
             return
             
-        with st.spinner("Đang phân tích và đối chiếu..."):
+        with st.spinner("Đang phân tích, đối chiếu và sửa lỗi..."):
             input_data = extract_input_data(input_text)
-            doc = docx.Document(uploaded_file)
             
-            # 1. Lấy toàn bộ text ở các đoạn văn thường
+            # --- ĐỌC VÀ KIỂM TRA LỖI (GIỮ NGUYÊN LOGIC CŨ) ---
+            doc = docx.Document(uploaded_file)
             full_word_text = "\n".join([p.text for p in doc.paragraphs])
             
             danh_sach_sp_word = []
-            all_table_text = [] # KHO LƯU TOÀN BỘ CHỮ TRONG BẢNG
+            all_table_text = [] 
             
             for table in doc.tables:
                 for row in table.rows:
-                    # Gom chữ trong bảng lại
                     row_text = [cell.text for cell in row.cells]
                     all_table_text.append(" ".join(row_text))
                     
                     cells = row.cells
-                    # Bảng hợp đồng chuẩn có 6 cột: STT(0) | Tên(1) | Mô tả(2) | Số lượng(3) | Đơn giá(4) | Thành tiền(5)
                     if len(cells) >= 5: 
                         ten_sp_word = normalize_text(cells[1].text)
-                        
-                        # Chỉ lấy những dòng có chữ dài (Tên SP) để loại trừ dòng tiêu đề hoặc dòng tính tổng
                         if ten_sp_word and len(ten_sp_word) > 10: 
                             danh_sach_sp_word.append({
                                 "ten": ten_sp_word,
-                                "so_luong": normalize_text(cells[3].text), # Ép cứng lấy cột Số lượng
-                                "don_gia": normalize_text(cells[4].text)   # Ép cứng lấy cột Đơn giá
+                                "so_luong": normalize_text(cells[3].text),
+                                "don_gia": normalize_text(cells[4].text)
                             })
             
-            # SỬA LỖI Ở ĐÂY: Gộp text của cả đoạn văn VÀ text trong bảng lại với nhau để không sót Tổng tiền
             full_table_text = "\n".join(all_table_text)
             full_doc_combined = full_word_text + "\n" + full_table_text
             full_doc_normalized = normalize_text(full_doc_combined)
@@ -115,11 +172,15 @@ def main():
             st.markdown("---")
             st.subheader("📊 KẾT QUẢ ĐỐI CHIẾU")
             
+            has_error = False # Biến theo dõi xem có lỗi hay không
+            
             def show_result(label, is_match, original_text):
+                nonlocal has_error
                 if is_match:
                     st.success(f"✅ **{label}:** Khớp ({original_text})")
                 else:
-                    st.error(f"❌ **{label}:** LỖI SAI LỆCH HOẶC KHÔNG TÌM THẤY! (Gốc: {original_text})")
+                    has_error = True
+                    st.error(f"❌ **{label}:** LỖI! (Gốc: {original_text}) -> Sẽ được Auto-Fix")
 
             st.markdown("### I. Thông tin cơ bản")
             show_result("Tên công ty", normalize_text(input_data['cong_ty']) in full_doc_normalized, input_data['cong_ty'])
@@ -136,16 +197,13 @@ def main():
                 st.info("Không tìm thấy danh sách sản phẩm trong Input gốc.")
                 
             for idx, sp in enumerate(input_data['san_pham']):
-                # 1. So sánh Tên sản phẩm
                 ten_goc_norm = normalize_text(sp['ten'])
                 is_name_match = False
                 is_qty_price_match = False
                 qty_goc_norm = normalize_text(sp['so_luong'])
                 price_goc_norm = normalize_text(sp['don_gia'])
                 
-                # 2. Tìm sản phẩm tương ứng trong danh sách các dòng của file Word
                 for sp_word in danh_sach_sp_word:
-                    # Dùng 30 ký tự đầu để định vị xem đang check đúng dòng sản phẩm đó chưa
                     if ten_goc_norm[:30] in sp_word['ten']:
                         is_name_match = True
                         if qty_goc_norm == sp_word['so_luong'] and price_goc_norm in sp_word['don_gia']:
@@ -157,7 +215,31 @@ def main():
                 if is_qty_price_match:
                     st.success(f"✅ **Giá & Số lượng SP {idx+1}:** Khớp toàn bộ thông số ({sp['chuoi_gia_goc']})")
                 else:
-                    st.error(f"❌ **Giá & Số lượng SP {idx+1}:** SAI SỐ LƯỢNG HOẶC ĐƠN GIÁ! Vui lòng kiểm tra lại cột Số Lượng và Đơn Giá. (Gốc: {sp['chuoi_gia_goc']})")
+                    has_error = True
+                    st.error(f"❌ **Giá & Số lượng SP {idx+1}:** SAI! -> Sẽ được Auto-Fix. (Gốc: {sp['chuoi_gia_goc']})")
+
+            # --- NẾU CÓ LỖI, GỌI HÀM AUTO FIX VÀ XUẤT FILE MỚI ---
+            st.markdown("---")
+            if has_error:
+                st.info("🤖 Đã phát hiện lỗi sai! Tool đang tiến hành tự động thay thế bằng dữ liệu gốc...")
+                
+                # Gọi hàm fix file word
+                doc_fixed = auto_fix_document(doc, input_data)
+                
+                # Lưu file vào bộ nhớ tạm (io.BytesIO) thay vì lưu vào ổ cứng
+                bio = io.BytesIO()
+                doc_fixed.save(bio)
+                
+                # Hiển thị nút tải xuống
+                st.success("🎉 Đã sửa xong! Bạn hãy tải file Word hoàn chỉnh ở nút bên dưới:")
+                st.download_button(
+                    label="📥 TẢI XUỐNG FILE HỢP ĐỒNG ĐÃ SỬA",
+                    data=bio.getvalue(),
+                    file_name="Hop_Dong_Da_Fix.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+            else:
+                st.success("🎉 Chúc mừng! Hợp đồng này chính xác 100%, không cần phải sửa gì thêm!")
 
 if __name__ == "__main__":
     main()
