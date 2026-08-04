@@ -82,15 +82,18 @@ def main():
             input_data = extract_input_data(input_text)
             doc = docx.Document(uploaded_file)
             
+            # 1. Lấy toàn bộ text ở các đoạn văn thường
             full_word_text = "\n".join([p.text for p in doc.paragraphs])
             
-            # -------------------------------------------------------------
-            # THUẬT TOÁN MỚI: BÓC TÁCH CHÍNH XÁC TỪNG CỘT TRONG BẢNG WORD
-            # -------------------------------------------------------------
             danh_sach_sp_word = []
+            all_table_text = [] # KHO LƯU TOÀN BỘ CHỮ TRONG BẢNG
             
             for table in doc.tables:
                 for row in table.rows:
+                    # Gom chữ trong bảng lại
+                    row_text = [cell.text for cell in row.cells]
+                    all_table_text.append(" ".join(row_text))
+                    
                     cells = row.cells
                     # Bảng hợp đồng chuẩn có 6 cột: STT(0) | Tên(1) | Mô tả(2) | Số lượng(3) | Đơn giá(4) | Thành tiền(5)
                     if len(cells) >= 5: 
@@ -104,8 +107,10 @@ def main():
                                 "don_gia": normalize_text(cells[4].text)   # Ép cứng lấy cột Đơn giá
                             })
             
-            # Gom text đoạn văn thường để check các thông tin cơ bản
-            full_doc_normalized = normalize_text(full_word_text)
+            # SỬA LỖI Ở ĐÂY: Gộp text của cả đoạn văn VÀ text trong bảng lại với nhau để không sót Tổng tiền
+            full_table_text = "\n".join(all_table_text)
+            full_doc_combined = full_word_text + "\n" + full_table_text
+            full_doc_normalized = normalize_text(full_doc_combined)
 
             st.markdown("---")
             st.subheader("📊 KẾT QUẢ ĐỐI CHIẾU")
@@ -117,7 +122,6 @@ def main():
                     st.error(f"❌ **{label}:** LỖI SAI LỆCH HOẶC KHÔNG TÌM THẤY! (Gốc: {original_text})")
 
             st.markdown("### I. Thông tin cơ bản")
-            # Riêng thông tin cơ bản vẫn quét toàn cục vì nó nằm rải rác trong các đoạn văn
             show_result("Tên công ty", normalize_text(input_data['cong_ty']) in full_doc_normalized, input_data['cong_ty'])
             show_result("Mã số thuế", normalize_text(input_data['mst']) in full_doc_normalized, input_data['mst'])
             show_result("Địa chỉ", normalize_text(input_data['dia_chi']) in full_doc_normalized, input_data['dia_chi'])
@@ -134,11 +138,8 @@ def main():
             for idx, sp in enumerate(input_data['san_pham']):
                 # 1. So sánh Tên sản phẩm
                 ten_goc_norm = normalize_text(sp['ten'])
-                
-                # Biến cờ kiểm tra
                 is_name_match = False
                 is_qty_price_match = False
-                
                 qty_goc_norm = normalize_text(sp['so_luong'])
                 price_goc_norm = normalize_text(sp['don_gia'])
                 
@@ -147,13 +148,9 @@ def main():
                     # Dùng 30 ký tự đầu để định vị xem đang check đúng dòng sản phẩm đó chưa
                     if ten_goc_norm[:30] in sp_word['ten']:
                         is_name_match = True
-                        
-                        # TÌM CHÍNH XÁC TRONG TỪNG CỘT (Áp dụng tư duy chia bản của bạn)
-                        # - Cột Số Lượng (sp_word['so_luong']) BẮT BUỘC bằng tuyệt đối số lượng gốc
-                        # - Cột Đơn Giá (sp_word['don_gia']) phải chứa chuỗi giá gốc
                         if qty_goc_norm == sp_word['so_luong'] and price_goc_norm in sp_word['don_gia']:
                             is_qty_price_match = True
-                        break # Tìm đúng dòng rồi thì dừng vòng lặp quét bảng
+                        break 
                 
                 show_result(f"Tên Sản Phẩm {idx+1}", is_name_match, sp['ten'])
                 
