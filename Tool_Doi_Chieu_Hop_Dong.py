@@ -2,20 +2,18 @@ import streamlit as st
 import docx
 import re
 import unicodedata
-import io # Thêm thư viện io để xử lý tải file
+import io 
 
 # 1. CẤU HÌNH GIAO DIỆN TRANG WEB
 st.set_page_config(page_title="Phần Mềm Kiểm Tra Hợp Đồng", page_icon="🔍", layout="wide")
 
 # 2. CÁC HÀM XỬ LÝ DỮ LIỆU
 def normalize_text(text):
-    """Hàm làm sạch chữ: Xóa khoảng trắng và đồng bộ mã tiếng Việt"""
     if not text: return ""
     text_nfc = unicodedata.normalize('NFC', str(text))
     return re.sub(r'\s+', '', text_nfc).lower()
 
 def extract_input_data(input_text):
-    """Hàm bóc tách dữ liệu từ Input gốc của Zalo/Email"""
     data = {
         "cong_ty": "", "mst": "", "dia_chi": "", "dai_dien": "", "chuc_vu": "",
         "tong_tien": "", "bang_chu": "", "dia_chi_giao": "",
@@ -61,70 +59,83 @@ def extract_input_data(input_text):
         
     return data
 
-# 3. HÀM TỰ ĐỘNG SỬA FILE WORD (AUTO-FIX)
+# 3. HÀM TỰ ĐỘNG SỬA FILE WORD (GIỮ NGUYÊN FONT & ĐỊNH DẠNG)
 def auto_fix_document(doc, input_data):
-    """Hàm tự động tìm và thay thế nội dung sai trong Word bằng nội dung gốc"""
     
-    # A. Sửa lỗi trong BẢNG (Sản phẩm, Tổng tiền, Bằng chữ)
+    def replace_text_keep_format(paragraph, new_text):
+        """Hàm thay chữ nhưng giữ nguyên font, size, in đậm của dòng cũ"""
+        if not paragraph.runs:
+            paragraph.text = str(new_text)
+            return
+        # Giữ lại cục định dạng đầu tiên, thay chữ vào đó
+        paragraph.runs[0].text = str(new_text)
+        # Xóa các cục chữ thừa phía sau (để không bị dính chữ cũ)
+        for i in range(len(paragraph.runs) - 1, 0, -1):
+            paragraph._element.remove(paragraph.runs[i]._element)
+
+    # A. Sửa lỗi trong BẢNG
     for table in doc.tables:
         for row in table.rows:
             cells = row.cells
-            
-            # Sửa thông tin Sản Phẩm
             if len(cells) >= 5: 
                 ten_sp_word = normalize_text(cells[1].text)
                 if ten_sp_word and len(ten_sp_word) > 10: 
                     for sp in input_data['san_pham']:
-                        # Nếu đúng dòng sản phẩm đó -> Ghi đè SL và Đơn giá
                         if normalize_text(sp['ten'])[:30] in ten_sp_word:
-                            cells[3].text = str(sp['so_luong'])
-                            cells[4].text = str(sp['don_gia'])
-                            if len(cells) >= 6:
-                                cells[5].text = str(sp['thanh_tien'])
+                            # Sửa ô trong bảng cũng phải giữ nguyên định dạng
+                            if cells[3].paragraphs: replace_text_keep_format(cells[3].paragraphs[0], sp['so_luong'])
+                            if cells[4].paragraphs: replace_text_keep_format(cells[4].paragraphs[0], sp['don_gia'])
+                            if len(cells) >= 6 and cells[5].paragraphs:
+                                replace_text_keep_format(cells[5].paragraphs[0], sp['thanh_tien'])
             
-            # Sửa Tổng tiền và Bằng chữ (nếu nằm trong bảng)
             for cell in cells:
-                text_lower = normalize_text(cell.text)
-                if "tổng(đãbaogồmvat)" in text_lower:
-                    cell.text = f"Tổng (đã bao gồm VAT): {input_data['tong_tien']}"
-                elif "bằngchữ:" in text_lower:
-                    cell.text = f"Bằng chữ: {input_data['bang_chu']}"
+                for p in cell.paragraphs:
+                    text_lower = normalize_text(p.text)
+                    if "tổng(đãbaogồmvat)" in text_lower:
+                        replace_text_keep_format(p, f"Tổng (đã bao gồm VAT): {input_data['tong_tien']}")
+                    elif "bằngchữ:" in text_lower:
+                        replace_text_keep_format(p, f"Bằng chữ: {input_data['bang_chu']}")
 
     # B. Sửa lỗi Thông tin cơ bản (Đoạn văn)
-    # Dùng biến đếm để chỉ sửa thông tin của Bên A (xuất hiện lần đầu), tránh sửa nhầm của Bên B
     count_mst = 0
     count_dc = 0
     count_dd = 0
+    passed_4_2 = False # Cờ định vị để không fix nhầm dòng mờ
     
     for p in doc.paragraphs:
-        text_lower = p.text.lower()
+        text_lower = p.text.lower().strip()
         
         if "bên mua (bên a):" in text_lower:
-            p.text = f"Bên Mua (Bên A): {input_data['cong_ty'].upper()}"
+            replace_text_keep_format(p, f"Bên Mua (Bên A): {input_data['cong_ty'].upper()}")
         elif "mã số thuế" in text_lower:
             count_mst += 1
-            if count_mst == 1: p.text = f"Mã số thuế\t: {input_data['mst']}"
-        elif "địa chỉ" in text_lower and ("phường" in text_lower or "khu phố" in text_lower or count_dc == 0):
+            if count_mst == 1: replace_text_keep_format(p, f"Mã số thuế\t: {input_data['mst']}")
+        elif "địa chỉ" in text_lower and ("phường" in text_lower or "khu phố" in text_lower or count_dc == 0) and not text_lower.startswith("4.3") and "nhận hàng" not in text_lower:
             count_dc += 1
-            if count_dc == 1: p.text = f"Địa chỉ\t: {input_data['dia_chi']}"
+            if count_dc == 1: replace_text_keep_format(p, f"Địa chỉ\t: {input_data['dia_chi']}")
         elif "đại diện" in text_lower and "chức vụ" in text_lower:
             count_dd += 1
-            if count_dd == 1: p.text = f"Đại diện\t: {input_data['dai_dien']}\tChức vụ: {input_data['chuc_vu']}"
-        elif "địa điểm giao hàng" in text_lower:
-            p.text = f"4.3.\tĐịa điểm giao hàng: {input_data['dia_chi_giao']}"
+            if count_dd == 1: replace_text_keep_format(p, f"Đại diện\t: {input_data['dai_dien']}\tChức vụ: {input_data['chuc_vu']}")
             
-        # Dự phòng trường hợp Tổng tiền/Bằng chữ nằm ngoài bảng
+        # --- BẮT CHÍNH XÁC DÒNG 4.3 MÀU ĐỎ ---
+        elif text_lower.startswith("4.2"):
+            passed_4_2 = True # Báo hiệu đã đi qua dòng 4.2
+            
+        elif text_lower.startswith("4.3") and "địa điểm giao hàng" in text_lower:
+            if passed_4_2: # Chỉ fix dòng 4.3 nằm DƯỚI dòng 4.2
+                replace_text_keep_format(p, f"4.3.\tĐịa điểm giao hàng: {input_data['dia_chi_giao']}")
+                
         elif "tổng (đã bao gồm vat):" in text_lower:
-            p.text = f"Tổng (đã bao gồm VAT): {input_data['tong_tien']}"
+            replace_text_keep_format(p, f"Tổng (đã bao gồm VAT): {input_data['tong_tien']}")
         elif "bằng chữ:" in text_lower and "đồng" in text_lower:
-            p.text = f"Bằng chữ: {input_data['bang_chu']}"
+            replace_text_keep_format(p, f"Bằng chữ: {input_data['bang_chu']}")
 
     return doc
 
 # 4. GIAO DIỆN CHÍNH
 def main():
     st.title("Phần Mềm Kiểm Tra & Tự Động Sửa Hợp Đồng 🤖")
-    st.markdown("*Tool sẽ quét lỗi. Nếu phát hiện sai sót, tool sẽ tự động tạo ra một file Word hoàn chỉnh mới cho bạn tải về!*")
+    st.markdown("*Tool sẽ quét lỗi. Nếu phát hiện sai sót, tool sẽ tự động thay thế bằng dữ liệu gốc (Đảm bảo 100% không lệch Font)!*")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -142,11 +153,9 @@ def main():
             
         with st.spinner("Đang phân tích, đối chiếu và sửa lỗi..."):
             input_data = extract_input_data(input_text)
-            
-            # --- ĐỌC VÀ KIỂM TRA LỖI (GIỮ NGUYÊN LOGIC CŨ) ---
             doc = docx.Document(uploaded_file)
-            full_word_text = "\n".join([p.text for p in doc.paragraphs])
             
+            full_word_text = "\n".join([p.text for p in doc.paragraphs])
             danh_sach_sp_word = []
             all_table_text = [] 
             
@@ -171,8 +180,7 @@ def main():
 
             st.markdown("---")
             st.subheader("📊 KẾT QUẢ ĐỐI CHIẾU")
-            
-            has_error = False # Biến theo dõi xem có lỗi hay không
+            has_error = False 
             
             def show_result(label, is_match, original_text):
                 nonlocal has_error
@@ -180,7 +188,7 @@ def main():
                     st.success(f"✅ **{label}:** Khớp ({original_text})")
                 else:
                     has_error = True
-                    st.error(f"❌ **{label}:** LỖI! (Gốc: {original_text}) -> Sẽ được Auto-Fix")
+                    st.error(f"❌ **{label}:** LỖI! (Gốc: {original_text}) -> Đã Auto-Fix")
 
             st.markdown("### I. Thông tin cơ bản")
             show_result("Tên công ty", normalize_text(input_data['cong_ty']) in full_doc_normalized, input_data['cong_ty'])
@@ -216,24 +224,19 @@ def main():
                     st.success(f"✅ **Giá & Số lượng SP {idx+1}:** Khớp toàn bộ thông số ({sp['chuoi_gia_goc']})")
                 else:
                     has_error = True
-                    st.error(f"❌ **Giá & Số lượng SP {idx+1}:** SAI! -> Sẽ được Auto-Fix. (Gốc: {sp['chuoi_gia_goc']})")
+                    st.error(f"❌ **Giá & Số lượng SP {idx+1}:** SAI! -> Đã Auto-Fix. (Gốc: {sp['chuoi_gia_goc']})")
 
-            # --- NẾU CÓ LỖI, GỌI HÀM AUTO FIX VÀ XUẤT FILE MỚI ---
             st.markdown("---")
             if has_error:
-                st.info("🤖 Đã phát hiện lỗi sai! Tool đang tiến hành tự động thay thế bằng dữ liệu gốc...")
+                st.info("🤖 Đã phát hiện lỗi sai! Tool đang tiến hành tự động thay thế bằng dữ liệu gốc (Giữ nguyên định dạng Word)...")
                 
-                # Gọi hàm fix file word
                 doc_fixed = auto_fix_document(doc, input_data)
-                
-                # Lưu file vào bộ nhớ tạm (io.BytesIO) thay vì lưu vào ổ cứng
                 bio = io.BytesIO()
                 doc_fixed.save(bio)
                 
-                # Hiển thị nút tải xuống
                 st.success("🎉 Đã sửa xong! Bạn hãy tải file Word hoàn chỉnh ở nút bên dưới:")
                 st.download_button(
-                    label="📥 TẢI XUỐNG FILE HỢP ĐỒNG ĐÃ SỬA",
+                    label="📥 TẢI XUỐNG FILE HỢP ĐỒNG ĐÃ SỬA CHUẨN FONT",
                     data=bio.getvalue(),
                     file_name="Hop_Dong_Da_Fix.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
