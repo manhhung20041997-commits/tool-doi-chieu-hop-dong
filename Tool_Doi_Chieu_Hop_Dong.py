@@ -59,19 +59,44 @@ def extract_input_data(input_text):
         
     return data
 
-# 3. HÀM TỰ ĐỘNG SỬA FILE WORD (GIỮ NGUYÊN FONT & ĐỊNH DẠNG)
+# 3. HÀM TỰ ĐỘNG SỬA FILE WORD
 def auto_fix_document(doc, input_data):
     
     def replace_text_keep_format(paragraph, new_text):
-        """Hàm thay chữ nhưng giữ nguyên font, size, in đậm của dòng cũ"""
+        """Hàm thay chữ nhưng giữ nguyên format của cục chữ đầu tiên"""
         if not paragraph.runs:
             paragraph.text = str(new_text)
             return
-        # Giữ lại cục định dạng đầu tiên, thay chữ vào đó
         paragraph.runs[0].text = str(new_text)
-        # Xóa các cục chữ thừa phía sau (để không bị dính chữ cũ)
         for i in range(len(paragraph.runs) - 1, 0, -1):
             paragraph._element.remove(paragraph.runs[i]._element)
+
+    def replace_mixed_format(paragraph, segments):
+        """Hàm thay chữ linh hoạt: cho phép chỉ định đoạn nào in đậm, đoạn nào in thường"""
+        if not paragraph.runs:
+            for text, is_bold in segments:
+                run = paragraph.add_run(text)
+                run.bold = is_bold
+            return
+            
+        # Lưu lại font gốc
+        base_font_name = paragraph.runs[0].font.name
+        base_font_size = paragraph.runs[0].font.size
+        base_italic = paragraph.runs[0].font.italic
+        
+        # Xóa các run cũ
+        paragraph.clear()
+        
+        # Tạo run mới với định dạng chuẩn
+        for text, is_bold in segments:
+            run = paragraph.add_run(text)
+            run.bold = is_bold # <-- Phép màu nằm ở đây (Tự động in đậm theo yêu cầu)
+            if base_italic is not None:
+                run.font.italic = base_italic
+            if base_font_name:
+                run.font.name = base_font_name
+            if base_font_size:
+                run.font.size = base_font_size
 
     # A. Sửa lỗi trong BẢNG
     for table in doc.tables:
@@ -82,7 +107,6 @@ def auto_fix_document(doc, input_data):
                 if ten_sp_word and len(ten_sp_word) > 10: 
                     for sp in input_data['san_pham']:
                         if normalize_text(sp['ten'])[:30] in ten_sp_word:
-                            # Sửa ô trong bảng cũng phải giữ nguyên định dạng
                             if cells[3].paragraphs: replace_text_keep_format(cells[3].paragraphs[0], sp['so_luong'])
                             if cells[4].paragraphs: replace_text_keep_format(cells[4].paragraphs[0], sp['don_gia'])
                             if len(cells) >= 6 and cells[5].paragraphs:
@@ -92,21 +116,25 @@ def auto_fix_document(doc, input_data):
                 for p in cell.paragraphs:
                     text_lower = normalize_text(p.text)
                     if "tổng(đãbaogồmvat)" in text_lower:
-                        replace_text_keep_format(p, f"Tổng (đã bao gồm VAT): {input_data['tong_tien']}")
+                        replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", False), (input_data['tong_tien'], True)])
                     elif "bằngchữ:" in text_lower:
-                        replace_text_keep_format(p, f"Bằng chữ: {input_data['bang_chu']}")
+                        replace_mixed_format(p, [("Bằng chữ: ", False), (input_data['bang_chu'], True)])
 
     # B. Sửa lỗi Thông tin cơ bản (Đoạn văn)
     count_mst = 0
     count_dc = 0
     count_dd = 0
-    passed_4_2 = False # Cờ định vị để không fix nhầm dòng mờ
+    passed_4_2 = False 
     
     for p in doc.paragraphs:
         text_lower = p.text.lower().strip()
         
         if "bên mua (bên a):" in text_lower:
-            replace_text_keep_format(p, f"Bên Mua (Bên A): {input_data['cong_ty'].upper()}")
+            # Sửa Tên Công Ty (Tự động in đậm Tên công ty)
+            replace_mixed_format(p, [
+                ("Bên Mua (Bên A): ", False),
+                (input_data['cong_ty'].upper(), True)
+            ])
         elif "mã số thuế" in text_lower:
             count_mst += 1
             if count_mst == 1: replace_text_keep_format(p, f"Mã số thuế\t: {input_data['mst']}")
@@ -115,27 +143,33 @@ def auto_fix_document(doc, input_data):
             if count_dc == 1: replace_text_keep_format(p, f"Địa chỉ\t: {input_data['dia_chi']}")
         elif "đại diện" in text_lower and "chức vụ" in text_lower:
             count_dd += 1
-            if count_dd == 1: replace_text_keep_format(p, f"Đại diện\t: {input_data['dai_dien']}\tChức vụ: {input_data['chuc_vu']}")
-            
-        # --- BẮT CHÍNH XÁC DÒNG 4.3 MÀU ĐỎ ---
+            if count_dd == 1: 
+                # Sửa Đại diện và Chức vụ (Tự động in đậm tên người và chức vụ)
+                replace_mixed_format(p, [
+                    ("Đại diện\t: ", False),
+                    (input_data['dai_dien'], True),
+                    ("\tChức vụ: ", False),
+                    (input_data['chuc_vu'], True)
+                ])
+                
         elif text_lower.startswith("4.2"):
-            passed_4_2 = True # Báo hiệu đã đi qua dòng 4.2
+            passed_4_2 = True 
             
         elif text_lower.startswith("4.3") and "địa điểm giao hàng" in text_lower:
-            if passed_4_2: # Chỉ fix dòng 4.3 nằm DƯỚI dòng 4.2
+            if passed_4_2: 
                 replace_text_keep_format(p, f"4.3.\tĐịa điểm giao hàng: {input_data['dia_chi_giao']}")
                 
         elif "tổng (đã bao gồm vat):" in text_lower:
-            replace_text_keep_format(p, f"Tổng (đã bao gồm VAT): {input_data['tong_tien']}")
+            replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", False), (input_data['tong_tien'], True)])
         elif "bằng chữ:" in text_lower and "đồng" in text_lower:
-            replace_text_keep_format(p, f"Bằng chữ: {input_data['bang_chu']}")
+            replace_mixed_format(p, [("Bằng chữ: ", False), (input_data['bang_chu'], True)])
 
     return doc
 
 # 4. GIAO DIỆN CHÍNH
 def main():
     st.title("Phần Mềm Kiểm Tra & Tự Động Sửa Hợp Đồng 🤖")
-    st.markdown("*Tool sẽ quét lỗi. Nếu phát hiện sai sót, tool sẽ tự động thay thế bằng dữ liệu gốc (Đảm bảo 100% không lệch Font)!*")
+    st.markdown("*Tool sẽ quét lỗi. Nếu phát hiện sai sót, tool sẽ tự động thay thế bằng dữ liệu gốc (Đảm bảo 100% không lệch Font & In đậm)!*")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -236,7 +270,7 @@ def main():
                 
                 st.success("🎉 Đã sửa xong! Bạn hãy tải file Word hoàn chỉnh ở nút bên dưới:")
                 st.download_button(
-                    label="📥 TẢI XUỐNG FILE HỢP ĐỒNG ĐÃ SỬA CHUẨN FONT",
+                    label="📥 TẢI XUỐNG FILE HỢP ĐỒNG ĐÃ SỬA CHUẨN FONT & IN ĐẬM",
                     data=bio.getvalue(),
                     file_name="Hop_Dong_Da_Fix.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
