@@ -63,7 +63,6 @@ def extract_input_data(input_text):
 def auto_fix_document(doc, input_data):
     
     def replace_text_keep_format(paragraph, new_text):
-        """Hàm thay chữ nhưng giữ nguyên format của cục chữ đầu tiên"""
         if not paragraph.runs:
             paragraph.text = str(new_text)
             return
@@ -72,25 +71,21 @@ def auto_fix_document(doc, input_data):
             paragraph._element.remove(paragraph.runs[i]._element)
 
     def replace_mixed_format(paragraph, segments):
-        """Hàm thay chữ linh hoạt: cho phép chỉ định đoạn nào in đậm, đoạn nào in thường"""
         if not paragraph.runs:
             for text, is_bold in segments:
                 run = paragraph.add_run(text)
                 run.bold = is_bold
             return
             
-        # Lưu lại font gốc
         base_font_name = paragraph.runs[0].font.name
         base_font_size = paragraph.runs[0].font.size
         base_italic = paragraph.runs[0].font.italic
         
-        # Xóa các run cũ
         paragraph.clear()
         
-        # Tạo run mới với định dạng chuẩn
         for text, is_bold in segments:
             run = paragraph.add_run(text)
-            run.bold = is_bold # <-- Phép màu nằm ở đây (Tự động in đậm theo yêu cầu)
+            run.bold = is_bold
             if base_italic is not None:
                 run.font.italic = base_italic
             if base_font_name:
@@ -106,7 +101,9 @@ def auto_fix_document(doc, input_data):
                 ten_sp_word = normalize_text(cells[1].text)
                 if ten_sp_word and len(ten_sp_word) > 10: 
                     for sp in input_data['san_pham']:
-                        if normalize_text(sp['ten'])[:30] in ten_sp_word:
+                        sp_ten_norm = normalize_text(sp['ten'])
+                        # SỬA LỖI Ở ĐÂY: Check cả 30 ký tự đầu VÀ 15 ký tự cuối
+                        if sp_ten_norm[:30] in ten_sp_word and sp_ten_norm[-15:] in ten_sp_word:
                             if cells[3].paragraphs: replace_text_keep_format(cells[3].paragraphs[0], sp['so_luong'])
                             if cells[4].paragraphs: replace_text_keep_format(cells[4].paragraphs[0], sp['don_gia'])
                             if len(cells) >= 6 and cells[5].paragraphs:
@@ -130,7 +127,6 @@ def auto_fix_document(doc, input_data):
         text_lower = p.text.lower().strip()
         
         if "bên mua (bên a):" in text_lower:
-            # Sửa Tên Công Ty (Tự động in đậm Tên công ty)
             replace_mixed_format(p, [
                 ("Bên Mua (Bên A): ", False),
                 (input_data['cong_ty'].upper(), True)
@@ -144,7 +140,6 @@ def auto_fix_document(doc, input_data):
         elif "đại diện" in text_lower and "chức vụ" in text_lower:
             count_dd += 1
             if count_dd == 1: 
-                # Sửa Đại diện và Chức vụ (Tự động in đậm tên người và chức vụ)
                 replace_mixed_format(p, [
                     ("Đại diện\t: ", False),
                     (input_data['dai_dien'], True),
@@ -246,7 +241,8 @@ def main():
                 price_goc_norm = normalize_text(sp['don_gia'])
                 
                 for sp_word in danh_sach_sp_word:
-                    if ten_goc_norm[:30] in sp_word['ten']:
+                    # SỬA LỖI Ở ĐÂY: Thuật toán Đầu - Đuôi 
+                    if ten_goc_norm[:30] in sp_word['ten'] and ten_goc_norm[-15:] in sp_word['ten']:
                         is_name_match = True
                         if qty_goc_norm == sp_word['so_luong'] and price_goc_norm in sp_word['don_gia']:
                             is_qty_price_match = True
@@ -270,7 +266,7 @@ def main():
                 
                 st.success("🎉 Đã sửa xong! Bạn hãy tải file Word hoàn chỉnh ở nút bên dưới:")
                 st.download_button(
-                    label="📥 TẢI XUỐNG FILE HỢP ĐỒNG ĐÃ SỬA CHUẨN FONT & IN ĐẬM",
+                    label="📥 TẢI XUỐNG FILE HỢP ĐỒNG ĐÃ SỬA CHUẨN",
                     data=bio.getvalue(),
                     file_name="Hop_Dong_Da_Fix.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
