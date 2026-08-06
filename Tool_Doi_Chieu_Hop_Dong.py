@@ -102,7 +102,6 @@ def auto_fix_document(doc, input_data):
                 if ten_sp_word and len(ten_sp_word) > 10: 
                     for sp in input_data['san_pham']:
                         sp_ten_norm = normalize_text(sp['ten'])
-                        # SỬA LỖI Ở ĐÂY: Check cả 30 ký tự đầu VÀ 15 ký tự cuối
                         if sp_ten_norm[:30] in ten_sp_word and sp_ten_norm[-15:] in ten_sp_word:
                             if cells[3].paragraphs: replace_text_keep_format(cells[3].paragraphs[0], sp['so_luong'])
                             if cells[4].paragraphs: replace_text_keep_format(cells[4].paragraphs[0], sp['don_gia'])
@@ -158,6 +157,42 @@ def auto_fix_document(doc, input_data):
             replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", False), (input_data['tong_tien'], True)])
         elif "bằng chữ:" in text_lower and "đồng" in text_lower:
             replace_mixed_format(p, [("Bằng chữ: ", False), (input_data['bang_chu'], True)])
+
+    # C. Sửa lỗi CHỮ KÝ cuối hợp đồng
+    # Bóc tách tên thật: Bỏ chữ "Ông/Bà/Anh/Chị" và viết hoa toàn bộ
+    ten_dai_dien_ky = re.sub(r'^(Ông\s+|Bà\s+|Anh\s+|Chị\s+)', '', input_data['dai_dien'], flags=re.IGNORECASE).strip().upper()
+    
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                if "đạidiệnbênmua" in normalize_text(cell.text):
+                    valid_paras = [p for p in cell.paragraphs if p.text.strip()]
+                    if len(valid_paras) >= 2:
+                        last_p = valid_paras[-1] # Đoạn cuối cùng thường là tên người ký
+                        if normalize_text(last_p.text) != normalize_text(ten_dai_dien_ky):
+                            # Giữ lại khoảng trắng căn lề của PM (nếu có)
+                            match_spaces = re.match(r'^(\s+)', last_p.text)
+                            leading_spaces = match_spaces.group(1) if match_spaces else ""
+                            replace_mixed_format(last_p, [(leading_spaces + ten_dai_dien_ky, True)])
+                            
+    # Dự phòng trường hợp PM không dùng bảng mà gõ chữ ký bằng văn bản thường
+    found_dai_dien_mua = False
+    lines_after_dai_dien = 0
+    for p in doc.paragraphs:
+        if "đạidiệnbênmua" in normalize_text(p.text):
+            found_dai_dien_mua = True
+            lines_after_dai_dien = 0
+            continue
+        if found_dai_dien_mua:
+            lines_after_dai_dien += 1
+            if p.text.strip() and lines_after_dai_dien <= 5:
+                # Nếu là dòng viết hoa toàn bộ và không phải chữ Giám đốc -> Đích thị là tên người ký
+                if p.text.strip().isupper() and "GIÁM ĐỐC" not in p.text.upper():
+                    if normalize_text(p.text) != normalize_text(ten_dai_dien_ky):
+                        match_spaces = re.match(r'^(\s+)', p.text)
+                        leading_spaces = match_spaces.group(1) if match_spaces else ""
+                        replace_mixed_format(p, [(leading_spaces + ten_dai_dien_ky, True)])
+                    found_dai_dien_mua = False
 
     return doc
 
@@ -229,6 +264,37 @@ def main():
             show_result("Số tiền bằng chữ", normalize_text(input_data['bang_chu']) in full_doc_normalized, input_data['bang_chu'])
             show_result("Địa chỉ nhận hàng", normalize_text(input_data['dia_chi_giao']) in full_doc_normalized, input_data['dia_chi_giao'])
             
+            # --- KIỂM TRA CHỮ KÝ ---
+            ten_dai_dien_ky = re.sub(r'^(Ông\s+|Bà\s+|Anh\s+|Chị\s+)', '', input_data['dai_dien'], flags=re.IGNORECASE).strip().upper()
+            ten_nguoi_ky_word = ""
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        if "đạidiệnbênmua" in normalize_text(cell.text):
+                            valid_paras = [p for p in cell.paragraphs if p.text.strip()]
+                            if len(valid_paras) >= 2:
+                                ten_nguoi_ky_word = valid_paras[-1].text.strip()
+            if not ten_nguoi_ky_word:
+                found_dai_dien_mua = False
+                lines = 0
+                for p in doc.paragraphs:
+                    if "đạidiệnbênmua" in normalize_text(p.text):
+                        found_dai_dien_mua = True
+                        lines = 0
+                        continue
+                    if found_dai_dien_mua:
+                        lines += 1
+                        if p.text.strip() and lines <= 5:
+                            if p.text.strip().isupper() and "GIÁM ĐỐC" not in p.text.upper():
+                                ten_nguoi_ky_word = p.text.strip()
+                                break
+            
+            is_signature_match = False
+            if ten_nguoi_ky_word and normalize_text(ten_dai_dien_ky) == normalize_text(ten_nguoi_ky_word):
+                is_signature_match = True
+                
+            show_result("Tên người ký (Cuối HĐ)", is_signature_match, ten_dai_dien_ky)
+
             st.markdown("### II. Chi tiết Hàng hóa / Sản phẩm")
             if not input_data['san_pham']:
                 st.info("Không tìm thấy danh sách sản phẩm trong Input gốc.")
@@ -241,7 +307,6 @@ def main():
                 price_goc_norm = normalize_text(sp['don_gia'])
                 
                 for sp_word in danh_sach_sp_word:
-                    # SỬA LỖI Ở ĐÂY: Thuật toán Đầu - Đuôi 
                     if ten_goc_norm[:30] in sp_word['ten'] and ten_goc_norm[-15:] in sp_word['ten']:
                         is_name_match = True
                         if qty_goc_norm == sp_word['so_luong'] and price_goc_norm in sp_word['don_gia']:
