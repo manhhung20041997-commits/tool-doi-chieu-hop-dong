@@ -158,41 +158,78 @@ def auto_fix_document(doc, input_data):
         elif "bằng chữ:" in text_lower and "đồng" in text_lower:
             replace_mixed_format(p, [("Bằng chữ: ", False), (input_data['bang_chu'], True)])
 
-    # C. Sửa lỗi CHỮ KÝ cuối hợp đồng
-    # Bóc tách tên thật: Bỏ chữ "Ông/Bà/Anh/Chị" và viết hoa toàn bộ
+    # C. SỬA LỖI CHỮ KÝ VÀ CHỨC VỤ CUỐI HỢP ĐỒNG (THUẬT TOÁN MỚI)
     ten_dai_dien_ky = re.sub(r'^(Ông\s+|Bà\s+|Anh\s+|Chị\s+)', '', input_data['dai_dien'], flags=re.IGNORECASE).strip().upper()
+    chuc_vu_goc = input_data['chuc_vu'].strip()
     
+    target_table = None
+    target_col_idx = -1
     for table in doc.tables:
         for row in table.rows:
-            for cell in row.cells:
+            for col_idx, cell in enumerate(row.cells):
                 if "đạidiệnbênmua" in normalize_text(cell.text):
-                    valid_paras = [p for p in cell.paragraphs if p.text.strip()]
-                    if len(valid_paras) >= 2:
-                        last_p = valid_paras[-1] # Đoạn cuối cùng thường là tên người ký
-                        if normalize_text(last_p.text) != normalize_text(ten_dai_dien_ky):
-                            # Giữ lại khoảng trắng căn lề của PM (nếu có)
-                            match_spaces = re.match(r'^(\s+)', last_p.text)
+                    target_table = table
+                    target_col_idx = col_idx
+                    break
+            if target_table: break
+        if target_table: break
+        
+    if target_table:
+        col_paras = []
+        for row in target_table.rows:
+            if target_col_idx < len(row.cells):
+                for p in row.cells[target_col_idx].paragraphs:
+                    if p.text.strip() and (not col_paras or p._element != col_paras[-1]._element):
+                        col_paras.append(p)
+                        
+        idx_dai_dien = -1
+        for i, p in enumerate(col_paras):
+            if "đạidiệnbênmua" in normalize_text(p.text):
+                idx_dai_dien = i
+                break
+                
+        if idx_dai_dien != -1:
+            # 1. Auto-Fix Tên người ký
+            p_ten = col_paras[-1]
+            if normalize_text(p_ten.text) != normalize_text(ten_dai_dien_ky):
+                match_spaces = re.match(r'^(\s+)', p_ten.text)
+                leading_spaces = match_spaces.group(1) if match_spaces else ""
+                replace_mixed_format(p_ten, [(leading_spaces + ten_dai_dien_ky, True)])
+                
+            # 2. Auto-Fix Chức vụ
+            if len(col_paras) >= idx_dai_dien + 3:
+                p_chuc_vu = col_paras[idx_dai_dien + 1]
+                if normalize_text(p_chuc_vu.text) != normalize_text(chuc_vu_goc):
+                    match_spaces = re.match(r'^(\s+)', p_chuc_vu.text)
+                    leading_spaces = match_spaces.group(1) if match_spaces else ""
+                    replace_mixed_format(p_chuc_vu, [(leading_spaces + chuc_vu_goc, False)])
+    else:
+        # Trường hợp PM không dùng bảng mà dùng văn bản thường
+        found = False
+        lines = 0
+        p_chuc_vu = None
+        for p in doc.paragraphs:
+            if "đạidiệnbênmua" in normalize_text(p.text):
+                found = True
+                lines = 0
+                continue
+            if found:
+                if p.text.strip():
+                    lines += 1
+                    if lines == 1:
+                        p_chuc_vu = p
+                    if p.text.strip().isupper() and "GIÁM ĐỐC" not in p.text.upper():
+                        if normalize_text(p.text) != normalize_text(ten_dai_dien_ky):
+                            match_spaces = re.match(r'^(\s+)', p.text)
                             leading_spaces = match_spaces.group(1) if match_spaces else ""
-                            replace_mixed_format(last_p, [(leading_spaces + ten_dai_dien_ky, True)])
+                            replace_mixed_format(p, [(leading_spaces + ten_dai_dien_ky, True)])
                             
-    # Dự phòng trường hợp PM không dùng bảng mà gõ chữ ký bằng văn bản thường
-    found_dai_dien_mua = False
-    lines_after_dai_dien = 0
-    for p in doc.paragraphs:
-        if "đạidiệnbênmua" in normalize_text(p.text):
-            found_dai_dien_mua = True
-            lines_after_dai_dien = 0
-            continue
-        if found_dai_dien_mua:
-            lines_after_dai_dien += 1
-            if p.text.strip() and lines_after_dai_dien <= 5:
-                # Nếu là dòng viết hoa toàn bộ và không phải chữ Giám đốc -> Đích thị là tên người ký
-                if p.text.strip().isupper() and "GIÁM ĐỐC" not in p.text.upper():
-                    if normalize_text(p.text) != normalize_text(ten_dai_dien_ky):
-                        match_spaces = re.match(r'^(\s+)', p.text)
-                        leading_spaces = match_spaces.group(1) if match_spaces else ""
-                        replace_mixed_format(p, [(leading_spaces + ten_dai_dien_ky, True)])
-                    found_dai_dien_mua = False
+                        if p_chuc_vu and normalize_text(p_chuc_vu.text) != normalize_text(chuc_vu_goc):
+                            match_spaces = re.match(r'^(\s+)', p_chuc_vu.text)
+                            leading_spaces = match_spaces.group(1) if match_spaces else ""
+                            replace_mixed_format(p_chuc_vu, [(leading_spaces + chuc_vu_goc, False)])
+                        break
+                if lines >= 5: break
 
     return doc
 
@@ -264,36 +301,67 @@ def main():
             show_result("Số tiền bằng chữ", normalize_text(input_data['bang_chu']) in full_doc_normalized, input_data['bang_chu'])
             show_result("Địa chỉ nhận hàng", normalize_text(input_data['dia_chi_giao']) in full_doc_normalized, input_data['dia_chi_giao'])
             
-            # --- KIỂM TRA CHỮ KÝ ---
+            # --- KIỂM TRA CHỮ KÝ VÀ CHỨC VỤ ---
             ten_dai_dien_ky = re.sub(r'^(Ông\s+|Bà\s+|Anh\s+|Chị\s+)', '', input_data['dai_dien'], flags=re.IGNORECASE).strip().upper()
+            chuc_vu_goc = input_data['chuc_vu'].strip()
             ten_nguoi_ky_word = ""
+            chuc_vu_ky_word = ""
+            
+            target_table = None
+            target_col_idx = -1
             for table in doc.tables:
                 for row in table.rows:
-                    for cell in row.cells:
+                    for col_idx, cell in enumerate(row.cells):
                         if "đạidiệnbênmua" in normalize_text(cell.text):
-                            valid_paras = [p for p in cell.paragraphs if p.text.strip()]
-                            if len(valid_paras) >= 2:
-                                ten_nguoi_ky_word = valid_paras[-1].text.strip()
-            if not ten_nguoi_ky_word:
-                found_dai_dien_mua = False
+                            target_table = table
+                            target_col_idx = col_idx
+                            break
+                    if target_table: break
+                if target_table: break
+                
+            if target_table:
+                col_paras = []
+                for row in target_table.rows:
+                    if target_col_idx < len(row.cells):
+                        for p in row.cells[target_col_idx].paragraphs:
+                            if p.text.strip() and (not col_paras or p._element != col_paras[-1]._element):
+                                col_paras.append(p)
+                                
+                idx_dai_dien = -1
+                for i, p in enumerate(col_paras):
+                    if "đạidiệnbênmua" in normalize_text(p.text):
+                        idx_dai_dien = i
+                        break
+                        
+                if idx_dai_dien != -1:
+                    ten_nguoi_ky_word = col_paras[-1].text.strip()
+                    if len(col_paras) >= idx_dai_dien + 3:
+                        chuc_vu_ky_word = col_paras[idx_dai_dien + 1].text.strip()
+            else:
+                found = False
                 lines = 0
                 for p in doc.paragraphs:
                     if "đạidiệnbênmua" in normalize_text(p.text):
-                        found_dai_dien_mua = True
+                        found = True
                         lines = 0
                         continue
-                    if found_dai_dien_mua:
-                        lines += 1
-                        if p.text.strip() and lines <= 5:
+                    if found:
+                        if p.text.strip():
+                            lines += 1
+                            if lines == 1:
+                                chuc_vu_ky_word = p.text.strip()
                             if p.text.strip().isupper() and "GIÁM ĐỐC" not in p.text.upper():
                                 ten_nguoi_ky_word = p.text.strip()
                                 break
+                        if lines >= 5: break
+                        
+            if ten_nguoi_ky_word:
+                is_signature_name_match = (normalize_text(ten_dai_dien_ky) == normalize_text(ten_nguoi_ky_word))
+                show_result("Tên người ký (Cuối HĐ)", is_signature_name_match, ten_dai_dien_ky)
             
-            is_signature_match = False
-            if ten_nguoi_ky_word and normalize_text(ten_dai_dien_ky) == normalize_text(ten_nguoi_ky_word):
-                is_signature_match = True
-                
-            show_result("Tên người ký (Cuối HĐ)", is_signature_match, ten_dai_dien_ky)
+            if chuc_vu_ky_word:
+                is_signature_pos_match = (normalize_text(chuc_vu_goc) == normalize_text(chuc_vu_ky_word))
+                show_result("Chức vụ người ký (Cuối HĐ)", is_signature_pos_match, chuc_vu_goc)
 
             st.markdown("### II. Chi tiết Hàng hóa / Sản phẩm")
             if not input_data['san_pham']:
