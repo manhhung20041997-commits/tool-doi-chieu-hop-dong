@@ -75,7 +75,7 @@ def auto_fix_document(doc, input_data):
             if base_font_size: run.font.size = base_font_size
 
     # A. Sửa lỗi trong BẢNG
-    processed_paragraphs = set() # Màng lọc chống lặp cho ô gộp
+    processed_paragraphs = set() 
     
     for table in doc.tables:
         for row in table.rows:
@@ -92,17 +92,17 @@ def auto_fix_document(doc, input_data):
             
             for cell in cells:
                 for p in cell.paragraphs:
-                    # Chống lặp paragraph trong ô gộp (Merged Cells) để không bị mất định dạng In nghiêng
                     if p in processed_paragraphs:
                         continue
                     processed_paragraphs.add(p)
                     
                     text_lower = normalize_text(p.text)
                     if "tổng(đãbaogồmvat)" in text_lower: 
-                        # Tiêu đề in thường (False), Số tiền bắt buộc in đậm (True)
-                        replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", False), (input_data['tong_tien'], True)])
+                        # FIX: Đã đổi False thành True để IN ĐẬM TOÀN BỘ CÂU
+                        replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", True), (input_data['tong_tien'], True)])
                     elif "bằngchữ:" in text_lower: 
-                        replace_mixed_format(p, [("Bằng chữ: ", False), (input_data['bang_chu'], True)])
+                        # FIX: Đã đổi False thành True để IN ĐẬM TOÀN BỘ CÂU
+                        replace_mixed_format(p, [("Bằng chữ: ", True), (input_data['bang_chu'], True)])
 
     # B. Sửa lỗi Thông tin cơ bản 
     count_mst = 0
@@ -125,8 +125,12 @@ def auto_fix_document(doc, input_data):
         elif text_lower.startswith("4.2"): passed_4_2 = True 
         elif text_lower.startswith("4.3") and "địa điểm giao hàng" in text_lower:
             if passed_4_2: replace_text_keep_format(p, f"4.3.\tĐịa điểm giao hàng: {input_data['dia_chi_giao']}")
-        elif "tổng (đã bao gồm vat):" in text_lower: replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", False), (input_data['tong_tien'], True)])
-        elif "bằng chữ:" in text_lower and "đồng" in text_lower: replace_mixed_format(p, [("Bằng chữ: ", False), (input_data['bang_chu'], True)])
+        elif "tổng (đã bao gồm vat):" in text_lower: 
+            # FIX: IN ĐẬM TOÀN BỘ
+            replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", True), (input_data['tong_tien'], True)])
+        elif "bằng chữ:" in text_lower and "đồng" in text_lower: 
+            # FIX: IN ĐẬM TOÀN BỘ
+            replace_mixed_format(p, [("Bằng chữ: ", True), (input_data['bang_chu'], True)])
 
     # C. Sửa lỗi CHỮ KÝ VÀ CHỨC VỤ 
     ten_dai_dien_ky = re.sub(r'^(Ông\s+|Bà\s+|Anh\s+|Chị\s+)', '', input_data['dai_dien'], flags=re.IGNORECASE).strip().upper()
@@ -199,7 +203,7 @@ def auto_fix_document(doc, input_data):
 
     return doc
 
-# 4. GIAO DIỆN CHÍNH (ĐÃ LÀM ĐẸP UI/UX)
+# 4. GIAO DIỆN CHÍNH
 def main():
     st.title("🤖 Hệ Thống Kiểm Tra & Sửa Hợp Đồng Tự Động")
     st.markdown("---")
@@ -218,7 +222,6 @@ def main():
             st.error("⚠️ Vui lòng nhập đủ Thông tin gốc và Tải lên file Word!")
             return
             
-        # Hiệu ứng thanh tiến trình ảo
         progress_text = "Hệ thống đang quét từng dòng hợp đồng..."
         my_bar = st.progress(0, text=progress_text)
         for percent_complete in range(100):
@@ -226,7 +229,6 @@ def main():
             my_bar.progress(percent_complete + 1, text=progress_text)
         my_bar.empty()
 
-        # Bắt đầu phân tích
         input_data = extract_input_data(input_text)
         doc = docx.Document(uploaded_file)
         
@@ -253,7 +255,6 @@ def main():
         full_doc_combined = full_word_text + "\n" + full_table_text
         full_doc_normalized = normalize_text(full_doc_combined)
 
-        # Dashboard Thống Kê
         st.markdown("---")
         st.subheader("📊 BẢNG ĐIỀU KHIỂN KẾT QUẢ")
         dashboard_placeholder = st.empty()
@@ -274,11 +275,10 @@ def main():
                 has_error = True
                 expander.error(f"❌ **{label}:** LỖI! (Gốc: {original_text}) -> Đã Auto-Fix")
 
-        # Giao diện Expander đóng/mở
         exp_basic = st.expander("I. Thông tin cơ bản & Chữ ký", expanded=has_error)
         exp_product = st.expander("II. Chi tiết Hàng hóa / Sản phẩm", expanded=has_error)
         
-        # --- QUÉT THÔNG TIN CƠ BẢN ---
+        # QUÉT THÔNG TIN CƠ BẢN
         show_result("Tên công ty", normalize_text(input_data['cong_ty']) in full_doc_normalized, input_data['cong_ty'], exp_basic)
         show_result("Mã số thuế", normalize_text(input_data['mst']) in full_doc_normalized, input_data['mst'], exp_basic)
         show_result("Địa chỉ", normalize_text(input_data['dia_chi']) in full_doc_normalized, input_data['dia_chi'], exp_basic)
@@ -288,7 +288,7 @@ def main():
         show_result("Số tiền bằng chữ", normalize_text(input_data['bang_chu']) in full_doc_normalized, input_data['bang_chu'], exp_basic)
         show_result("Địa chỉ nhận hàng", normalize_text(input_data['dia_chi_giao']) in full_doc_normalized, input_data['dia_chi_giao'], exp_basic)
         
-        # --- KIỂM TRA CHỮ KÝ ---
+        # KIỂM TRA CHỮ KÝ
         ten_dai_dien_ky = re.sub(r'^(Ông\s+|Bà\s+|Anh\s+|Chị\s+)', '', input_data['dai_dien'], flags=re.IGNORECASE).strip().upper()
         chuc_vu_goc = input_data['chuc_vu'].strip()
         ten_nguoi_ky_word = ""
@@ -342,7 +342,7 @@ def main():
         if ten_nguoi_ky_word: show_result("Tên người ký (Cuối HĐ)", normalize_text(ten_dai_dien_ky) == normalize_text(ten_nguoi_ky_word), ten_dai_dien_ky, exp_basic)
         if chuc_vu_ky_word: show_result("Chức vụ người ký (Cuối HĐ)", normalize_text(chuc_vu_goc) == normalize_text(chuc_vu_ky_word), chuc_vu_goc, exp_basic)
 
-        # --- QUÉT SẢN PHẨM ---
+        # QUÉT SẢN PHẨM
         if not input_data['san_pham']:
             exp_product.info("Không tìm thấy danh sách sản phẩm trong Input gốc.")
             
@@ -363,7 +363,6 @@ def main():
             show_result(f"Tên Sản Phẩm {idx+1}", is_name_match, sp['ten'], exp_product)
             show_result(f"Giá & Số lượng SP {idx+1}", is_qty_price_match, sp['chuoi_gia_goc'], exp_product)
 
-        # CẬP NHẬT DASHBOARD
         with dashboard_placeholder.container():
             d_col1, d_col2, d_col3 = st.columns(3)
             d_col1.metric("🔍 TỔNG MỤC RÀ SOÁT", f"{total_checks} mục")
@@ -372,7 +371,6 @@ def main():
 
         st.markdown("---")
         
-        # KẾT QUẢ VÀ TẢI XUỐNG
         if has_error:
             st.warning("🤖 Đã phát hiện và tự động sửa các lỗi sai. Bạn có thể tải bản Hợp đồng đã sửa chuẩn ngay bên dưới!")
             doc_fixed = auto_fix_document(doc, input_data)
@@ -387,7 +385,7 @@ def main():
                 type="primary"
             )
         else:
-            st.balloons() # Hiệu ứng bóng bay chúc mừng
+            st.balloons() 
             st.success("🎉 TUYỆT VỜI! Hợp đồng này chính xác 100%, không cần phải sửa gì thêm!")
 
 if __name__ == "__main__":
