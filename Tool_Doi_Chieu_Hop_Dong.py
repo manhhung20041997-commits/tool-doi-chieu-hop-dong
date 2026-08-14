@@ -3,9 +3,10 @@ import docx
 import re
 import unicodedata
 import io 
+import time
 
 # 1. CẤU HÌNH GIAO DIỆN TRANG WEB
-st.set_page_config(page_title="Phần Mềm Kiểm Tra Hợp Đồng", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="Phần Mềm Kiểm Tra Hợp Đồng", page_icon="🤖", layout="wide")
 
 # 2. CÁC HÀM XỬ LÝ DỮ LIỆU
 def normalize_text(text):
@@ -21,42 +22,28 @@ def extract_input_data(input_text):
     }
     
     lines = [line.strip() for line in input_text.split('\n') if line.strip()]
-    
     i = 0
     while i < len(lines):
         line = lines[i]
         line_lower = line.lower()
-        
-        if line_lower.startswith("tên công ty"):
-            data["cong_ty"] = line.split(":", 1)[1].strip()
-        elif line_lower.startswith("mã số thuế"):
-            data["mst"] = line.split(":", 1)[1].strip()
-        elif line_lower.startswith("địa chỉ :") or line_lower.startswith("địa chỉ:"):
-            data["dia_chi"] = line.split(":", 1)[1].strip()
-        elif line_lower.startswith("người đại diện"):
-            data["dai_dien"] = line.split(":", 1)[1].strip()
-        elif line_lower.startswith("chức vụ"):
-            data["chuc_vu"] = line.split(":", 1)[1].strip()
-        elif line_lower.startswith("tổng :") or line_lower.startswith("tổng:"):
-            data["tong_tien"] = line.split(":", 1)[1].strip()
-        elif line_lower.startswith("địa chỉ nhận hàng"):
-            data["dia_chi_giao"] = line.split(":", 1)[1].strip()
-            
+        if line_lower.startswith("tên công ty"): data["cong_ty"] = line.split(":", 1)[1].strip()
+        elif line_lower.startswith("mã số thuế"): data["mst"] = line.split(":", 1)[1].strip()
+        elif line_lower.startswith("địa chỉ :") or line_lower.startswith("địa chỉ:"): data["dia_chi"] = line.split(":", 1)[1].strip()
+        elif line_lower.startswith("người đại diện"): data["dai_dien"] = line.split(":", 1)[1].strip()
+        elif line_lower.startswith("chức vụ"): data["chuc_vu"] = line.split(":", 1)[1].strip()
+        elif line_lower.startswith("tổng :") or line_lower.startswith("tổng:"): data["tong_tien"] = line.split(":", 1)[1].strip()
+        elif line_lower.startswith("địa chỉ nhận hàng"): data["dia_chi_giao"] = line.split(":", 1)[1].strip()
         elif i > 0 and "x" in line and "=" in line and any(c.isdigit() for c in line):
             ten_sp = lines[i-1]
             match = re.search(r'([\d\.]+)\s*x\s*(\d+)\s*=\s*([\d\.]+)', line)
             if match:
                 data["san_pham"].append({
-                    "ten": ten_sp,
-                    "don_gia": match.group(1),
-                    "so_luong": match.group(2),
-                    "thanh_tien": match.group(3),
-                    "chuoi_gia_goc": line
+                    "ten": ten_sp, "don_gia": match.group(1), 
+                    "so_luong": match.group(2), "thanh_tien": match.group(3), "chuoi_gia_goc": line
                 })
         elif "đồng./." in line_lower or ("đồng" in line_lower and len(line) > 15):
              data["bang_chu"] = line.strip()
         i += 1
-        
     return data
 
 # 3. HÀM TỰ ĐỘNG SỬA FILE WORD
@@ -76,24 +63,20 @@ def auto_fix_document(doc, input_data):
                 run = paragraph.add_run(text)
                 run.bold = is_bold
             return
-            
         base_font_name = paragraph.runs[0].font.name
         base_font_size = paragraph.runs[0].font.size
         base_italic = paragraph.runs[0].font.italic
-        
         paragraph.clear()
-        
         for text, is_bold in segments:
             run = paragraph.add_run(text)
             run.bold = is_bold
-            if base_italic is not None:
-                run.font.italic = base_italic
-            if base_font_name:
-                run.font.name = base_font_name
-            if base_font_size:
-                run.font.size = base_font_size
+            if base_italic is not None: run.font.italic = base_italic
+            if base_font_name: run.font.name = base_font_name
+            if base_font_size: run.font.size = base_font_size
 
     # A. Sửa lỗi trong BẢNG
+    processed_paragraphs = set() # Màng lọc chống lặp cho ô gộp
+    
     for table in doc.tables:
         for row in table.rows:
             cells = row.cells
@@ -105,18 +88,23 @@ def auto_fix_document(doc, input_data):
                         if sp_ten_norm[:30] in ten_sp_word and sp_ten_norm[-15:] in ten_sp_word:
                             if cells[3].paragraphs: replace_text_keep_format(cells[3].paragraphs[0], sp['so_luong'])
                             if cells[4].paragraphs: replace_text_keep_format(cells[4].paragraphs[0], sp['don_gia'])
-                            if len(cells) >= 6 and cells[5].paragraphs:
-                                replace_text_keep_format(cells[5].paragraphs[0], sp['thanh_tien'])
+                            if len(cells) >= 6 and cells[5].paragraphs: replace_text_keep_format(cells[5].paragraphs[0], sp['thanh_tien'])
             
             for cell in cells:
                 for p in cell.paragraphs:
+                    # Chống lặp paragraph trong ô gộp (Merged Cells) để không bị mất định dạng In nghiêng
+                    if p in processed_paragraphs:
+                        continue
+                    processed_paragraphs.add(p)
+                    
                     text_lower = normalize_text(p.text)
-                    if "tổng(đãbaogồmvat)" in text_lower:
+                    if "tổng(đãbaogồmvat)" in text_lower: 
+                        # Tiêu đề in thường (False), Số tiền bắt buộc in đậm (True)
                         replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", False), (input_data['tong_tien'], True)])
-                    elif "bằngchữ:" in text_lower:
+                    elif "bằngchữ:" in text_lower: 
                         replace_mixed_format(p, [("Bằng chữ: ", False), (input_data['bang_chu'], True)])
 
-    # B. Sửa lỗi Thông tin cơ bản (Đoạn văn)
+    # B. Sửa lỗi Thông tin cơ bản 
     count_mst = 0
     count_dc = 0
     count_dd = 0
@@ -124,12 +112,7 @@ def auto_fix_document(doc, input_data):
     
     for p in doc.paragraphs:
         text_lower = p.text.lower().strip()
-        
-        if "bên mua (bên a):" in text_lower:
-            replace_mixed_format(p, [
-                ("Bên Mua (Bên A): ", False),
-                (input_data['cong_ty'].upper(), True)
-            ])
+        if "bên mua (bên a):" in text_lower: replace_mixed_format(p, [("Bên Mua (Bên A): ", False), (input_data['cong_ty'].upper(), True)])
         elif "mã số thuế" in text_lower:
             count_mst += 1
             if count_mst == 1: replace_text_keep_format(p, f"Mã số thuế\t: {input_data['mst']}")
@@ -138,27 +121,14 @@ def auto_fix_document(doc, input_data):
             if count_dc == 1: replace_text_keep_format(p, f"Địa chỉ\t: {input_data['dia_chi']}")
         elif "đại diện" in text_lower and "chức vụ" in text_lower:
             count_dd += 1
-            if count_dd == 1: 
-                replace_mixed_format(p, [
-                    ("Đại diện\t: ", False),
-                    (input_data['dai_dien'], True),
-                    ("\tChức vụ: ", False),
-                    (input_data['chuc_vu'], True)
-                ])
-                
-        elif text_lower.startswith("4.2"):
-            passed_4_2 = True 
-            
+            if count_dd == 1: replace_mixed_format(p, [("Đại diện\t: ", False), (input_data['dai_dien'], True), ("\tChức vụ: ", False), (input_data['chuc_vu'], True)])
+        elif text_lower.startswith("4.2"): passed_4_2 = True 
         elif text_lower.startswith("4.3") and "địa điểm giao hàng" in text_lower:
-            if passed_4_2: 
-                replace_text_keep_format(p, f"4.3.\tĐịa điểm giao hàng: {input_data['dia_chi_giao']}")
-                
-        elif "tổng (đã bao gồm vat):" in text_lower:
-            replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", False), (input_data['tong_tien'], True)])
-        elif "bằng chữ:" in text_lower and "đồng" in text_lower:
-            replace_mixed_format(p, [("Bằng chữ: ", False), (input_data['bang_chu'], True)])
+            if passed_4_2: replace_text_keep_format(p, f"4.3.\tĐịa điểm giao hàng: {input_data['dia_chi_giao']}")
+        elif "tổng (đã bao gồm vat):" in text_lower: replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", False), (input_data['tong_tien'], True)])
+        elif "bằng chữ:" in text_lower and "đồng" in text_lower: replace_mixed_format(p, [("Bằng chữ: ", False), (input_data['bang_chu'], True)])
 
-    # C. SỬA LỖI CHỮ KÝ VÀ CHỨC VỤ CUỐI HỢP ĐỒNG (THUẬT TOÁN MỚI)
+    # C. Sửa lỗi CHỮ KÝ VÀ CHỨC VỤ 
     ten_dai_dien_ky = re.sub(r'^(Ông\s+|Bà\s+|Anh\s+|Chị\s+)', '', input_data['dai_dien'], flags=re.IGNORECASE).strip().upper()
     chuc_vu_goc = input_data['chuc_vu'].strip()
     
@@ -179,9 +149,8 @@ def auto_fix_document(doc, input_data):
         for row in target_table.rows:
             if target_col_idx < len(row.cells):
                 for p in row.cells[target_col_idx].paragraphs:
-                    if p.text.strip() and (not col_paras or p._element != col_paras[-1]._element):
-                        col_paras.append(p)
-                        
+                    if p.text.strip() and (not col_paras or p._element != col_paras[-1]._element): col_paras.append(p)
+                                
         idx_dai_dien = -1
         for i, p in enumerate(col_paras):
             if "đạidiệnbênmua" in normalize_text(p.text):
@@ -189,22 +158,19 @@ def auto_fix_document(doc, input_data):
                 break
                 
         if idx_dai_dien != -1:
-            # 1. Auto-Fix Tên người ký
             p_ten = col_paras[-1]
             if normalize_text(p_ten.text) != normalize_text(ten_dai_dien_ky):
                 match_spaces = re.match(r'^(\s+)', p_ten.text)
                 leading_spaces = match_spaces.group(1) if match_spaces else ""
                 replace_mixed_format(p_ten, [(leading_spaces + ten_dai_dien_ky, True)])
                 
-            # 2. Auto-Fix Chức vụ
             if len(col_paras) >= idx_dai_dien + 3:
                 p_chuc_vu = col_paras[idx_dai_dien + 1]
                 if normalize_text(p_chuc_vu.text) != normalize_text(chuc_vu_goc):
                     match_spaces = re.match(r'^(\s+)', p_chuc_vu.text)
                     leading_spaces = match_spaces.group(1) if match_spaces else ""
-                    replace_mixed_format(p_chuc_vu, [(leading_spaces + chuc_vu_goc, False)])
+                    replace_mixed_format(p_chuc_vu, [(leading_spaces + chuc_vu_goc, True)])
     else:
-        # Trường hợp PM không dùng bảng mà dùng văn bản thường
         found = False
         lines = 0
         p_chuc_vu = None
@@ -227,185 +193,202 @@ def auto_fix_document(doc, input_data):
                         if p_chuc_vu and normalize_text(p_chuc_vu.text) != normalize_text(chuc_vu_goc):
                             match_spaces = re.match(r'^(\s+)', p_chuc_vu.text)
                             leading_spaces = match_spaces.group(1) if match_spaces else ""
-                            replace_mixed_format(p_chuc_vu, [(leading_spaces + chuc_vu_goc, False)])
+                            replace_mixed_format(p_chuc_vu, [(leading_spaces + chuc_vu_goc, True)])
                         break
                 if lines >= 5: break
 
     return doc
 
-# 4. GIAO DIỆN CHÍNH
+# 4. GIAO DIỆN CHÍNH (ĐÃ LÀM ĐẸP UI/UX)
 def main():
-    st.title("Phần Mềm Kiểm Tra & Tự Động Sửa Hợp Đồng 🤖")
-    st.markdown("*Tool sẽ quét lỗi. Nếu phát hiện sai sót, tool sẽ tự động thay thế bằng dữ liệu gốc (Đảm bảo 100% không lệch Font & In đậm)!*")
+    st.title("🤖 Hệ Thống Kiểm Tra & Sửa Hợp Đồng Tự Động")
+    st.markdown("---")
     
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("1. Nhập thông tin gốc")
-        input_text = st.text_area("Paste dữ liệu Input của bạn vào đây:", height=400)
+        st.info("📝 **BƯỚC 1: Nhập thông tin gốc**")
+        input_text = st.text_area("Paste dữ liệu Zalo/Email vào đây:", height=250, label_visibility="collapsed")
         
     with col2:
-        st.subheader("2. Tải lên file Word Hợp đồng")
-        uploaded_file = st.file_uploader("Chọn file .docx", type=["docx"])
+        st.info("📄 **BƯỚC 2: Tải lên Hợp đồng (Word)**")
+        uploaded_file = st.file_uploader("Kéo thả file .docx vào đây", type=["docx"], label_visibility="collapsed")
         
-    if st.button("🚀 BẮT ĐẦU ĐỐI CHIẾU & FIX LỖI", use_container_width=True):
+    if st.button("🚀 BẮT ĐẦU RÀ SOÁT & FIX LỖI", use_container_width=True, type="primary"):
         if not input_text or not uploaded_file:
-            st.warning("Vui lòng nhập đủ Thông tin gốc và Tải lên file Word!")
+            st.error("⚠️ Vui lòng nhập đủ Thông tin gốc và Tải lên file Word!")
             return
             
-        with st.spinner("Đang phân tích, đối chiếu và sửa lỗi..."):
-            input_data = extract_input_data(input_text)
-            doc = docx.Document(uploaded_file)
-            
-            full_word_text = "\n".join([p.text for p in doc.paragraphs])
-            danh_sach_sp_word = []
-            all_table_text = [] 
-            
-            for table in doc.tables:
-                for row in table.rows:
-                    row_text = [cell.text for cell in row.cells]
-                    all_table_text.append(" ".join(row_text))
-                    
-                    cells = row.cells
-                    if len(cells) >= 5: 
-                        ten_sp_word = normalize_text(cells[1].text)
-                        if ten_sp_word and len(ten_sp_word) > 10: 
-                            danh_sach_sp_word.append({
-                                "ten": ten_sp_word,
-                                "so_luong": normalize_text(cells[3].text),
-                                "don_gia": normalize_text(cells[4].text)
-                            })
-            
-            full_table_text = "\n".join(all_table_text)
-            full_doc_combined = full_word_text + "\n" + full_table_text
-            full_doc_normalized = normalize_text(full_doc_combined)
+        # Hiệu ứng thanh tiến trình ảo
+        progress_text = "Hệ thống đang quét từng dòng hợp đồng..."
+        my_bar = st.progress(0, text=progress_text)
+        for percent_complete in range(100):
+            time.sleep(0.01)
+            my_bar.progress(percent_complete + 1, text=progress_text)
+        my_bar.empty()
 
-            st.markdown("---")
-            st.subheader("📊 KẾT QUẢ ĐỐI CHIẾU")
-            has_error = False 
-            
-            def show_result(label, is_match, original_text):
-                nonlocal has_error
-                if is_match:
-                    st.success(f"✅ **{label}:** Khớp ({original_text})")
-                else:
-                    has_error = True
-                    st.error(f"❌ **{label}:** LỖI! (Gốc: {original_text}) -> Đã Auto-Fix")
-
-            st.markdown("### I. Thông tin cơ bản")
-            show_result("Tên công ty", normalize_text(input_data['cong_ty']) in full_doc_normalized, input_data['cong_ty'])
-            show_result("Mã số thuế", normalize_text(input_data['mst']) in full_doc_normalized, input_data['mst'])
-            show_result("Địa chỉ", normalize_text(input_data['dia_chi']) in full_doc_normalized, input_data['dia_chi'])
-            show_result("Người đại diện", normalize_text(input_data['dai_dien']) in full_doc_normalized, input_data['dai_dien'])
-            show_result("Chức vụ", normalize_text(input_data['chuc_vu']) in full_doc_normalized, input_data['chuc_vu'])
-            show_result("Tổng tiền", normalize_text(input_data['tong_tien']) in full_doc_normalized, input_data['tong_tien'])
-            show_result("Số tiền bằng chữ", normalize_text(input_data['bang_chu']) in full_doc_normalized, input_data['bang_chu'])
-            show_result("Địa chỉ nhận hàng", normalize_text(input_data['dia_chi_giao']) in full_doc_normalized, input_data['dia_chi_giao'])
-            
-            # --- KIỂM TRA CHỮ KÝ VÀ CHỨC VỤ ---
-            ten_dai_dien_ky = re.sub(r'^(Ông\s+|Bà\s+|Anh\s+|Chị\s+)', '', input_data['dai_dien'], flags=re.IGNORECASE).strip().upper()
-            chuc_vu_goc = input_data['chuc_vu'].strip()
-            ten_nguoi_ky_word = ""
-            chuc_vu_ky_word = ""
-            
-            target_table = None
-            target_col_idx = -1
-            for table in doc.tables:
-                for row in table.rows:
-                    for col_idx, cell in enumerate(row.cells):
-                        if "đạidiệnbênmua" in normalize_text(cell.text):
-                            target_table = table
-                            target_col_idx = col_idx
-                            break
-                    if target_table: break
-                if target_table: break
+        # Bắt đầu phân tích
+        input_data = extract_input_data(input_text)
+        doc = docx.Document(uploaded_file)
+        
+        full_word_text = "\n".join([p.text for p in doc.paragraphs])
+        danh_sach_sp_word = []
+        all_table_text = [] 
+        
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = [cell.text for cell in row.cells]
+                all_table_text.append(" ".join(row_text))
                 
-            if target_table:
-                col_paras = []
-                for row in target_table.rows:
-                    if target_col_idx < len(row.cells):
-                        for p in row.cells[target_col_idx].paragraphs:
-                            if p.text.strip() and (not col_paras or p._element != col_paras[-1]._element):
-                                col_paras.append(p)
-                                
-                idx_dai_dien = -1
-                for i, p in enumerate(col_paras):
-                    if "đạidiệnbênmua" in normalize_text(p.text):
-                        idx_dai_dien = i
+                cells = row.cells
+                if len(cells) >= 5: 
+                    ten_sp_word = normalize_text(cells[1].text)
+                    if ten_sp_word and len(ten_sp_word) > 10: 
+                        danh_sach_sp_word.append({
+                            "ten": ten_sp_word,
+                            "so_luong": normalize_text(cells[3].text),
+                            "don_gia": normalize_text(cells[4].text)
+                        })
+        
+        full_table_text = "\n".join(all_table_text)
+        full_doc_combined = full_word_text + "\n" + full_table_text
+        full_doc_normalized = normalize_text(full_doc_combined)
+
+        # Dashboard Thống Kê
+        st.markdown("---")
+        st.subheader("📊 BẢNG ĐIỀU KHIỂN KẾT QUẢ")
+        dashboard_placeholder = st.empty()
+        
+        total_checks = 0
+        passed_checks = 0
+        failed_checks = 0
+        has_error = False 
+        
+        def show_result(label, is_match, original_text, expander):
+            nonlocal total_checks, passed_checks, failed_checks, has_error
+            total_checks += 1
+            if is_match:
+                passed_checks += 1
+                expander.success(f"✅ **{label}:** Khớp ({original_text})")
+            else:
+                failed_checks += 1
+                has_error = True
+                expander.error(f"❌ **{label}:** LỖI! (Gốc: {original_text}) -> Đã Auto-Fix")
+
+        # Giao diện Expander đóng/mở
+        exp_basic = st.expander("I. Thông tin cơ bản & Chữ ký", expanded=has_error)
+        exp_product = st.expander("II. Chi tiết Hàng hóa / Sản phẩm", expanded=has_error)
+        
+        # --- QUÉT THÔNG TIN CƠ BẢN ---
+        show_result("Tên công ty", normalize_text(input_data['cong_ty']) in full_doc_normalized, input_data['cong_ty'], exp_basic)
+        show_result("Mã số thuế", normalize_text(input_data['mst']) in full_doc_normalized, input_data['mst'], exp_basic)
+        show_result("Địa chỉ", normalize_text(input_data['dia_chi']) in full_doc_normalized, input_data['dia_chi'], exp_basic)
+        show_result("Người đại diện", normalize_text(input_data['dai_dien']) in full_doc_normalized, input_data['dai_dien'], exp_basic)
+        show_result("Chức vụ", normalize_text(input_data['chuc_vu']) in full_doc_normalized, input_data['chuc_vu'], exp_basic)
+        show_result("Tổng tiền", normalize_text(input_data['tong_tien']) in full_doc_normalized, input_data['tong_tien'], exp_basic)
+        show_result("Số tiền bằng chữ", normalize_text(input_data['bang_chu']) in full_doc_normalized, input_data['bang_chu'], exp_basic)
+        show_result("Địa chỉ nhận hàng", normalize_text(input_data['dia_chi_giao']) in full_doc_normalized, input_data['dia_chi_giao'], exp_basic)
+        
+        # --- KIỂM TRA CHỮ KÝ ---
+        ten_dai_dien_ky = re.sub(r'^(Ông\s+|Bà\s+|Anh\s+|Chị\s+)', '', input_data['dai_dien'], flags=re.IGNORECASE).strip().upper()
+        chuc_vu_goc = input_data['chuc_vu'].strip()
+        ten_nguoi_ky_word = ""
+        chuc_vu_ky_word = ""
+        
+        target_table = None
+        target_col_idx = -1
+        for table in doc.tables:
+            for row in table.rows:
+                for col_idx, cell in enumerate(row.cells):
+                    if "đạidiệnbênmua" in normalize_text(cell.text):
+                        target_table = table
+                        target_col_idx = col_idx
                         break
-                        
-                if idx_dai_dien != -1:
-                    ten_nguoi_ky_word = col_paras[-1].text.strip()
-                    if len(col_paras) >= idx_dai_dien + 3:
-                        chuc_vu_ky_word = col_paras[idx_dai_dien + 1].text.strip()
-            else:
-                found = False
-                lines = 0
-                for p in doc.paragraphs:
-                    if "đạidiệnbênmua" in normalize_text(p.text):
-                        found = True
-                        lines = 0
-                        continue
-                    if found:
-                        if p.text.strip():
-                            lines += 1
-                            if lines == 1:
-                                chuc_vu_ky_word = p.text.strip()
-                            if p.text.strip().isupper() and "GIÁM ĐỐC" not in p.text.upper():
-                                ten_nguoi_ky_word = p.text.strip()
-                                break
-                        if lines >= 5: break
-                        
-            if ten_nguoi_ky_word:
-                is_signature_name_match = (normalize_text(ten_dai_dien_ky) == normalize_text(ten_nguoi_ky_word))
-                show_result("Tên người ký (Cuối HĐ)", is_signature_name_match, ten_dai_dien_ky)
+                if target_table: break
+            if target_table: break
             
-            if chuc_vu_ky_word:
-                is_signature_pos_match = (normalize_text(chuc_vu_goc) == normalize_text(chuc_vu_ky_word))
-                show_result("Chức vụ người ký (Cuối HĐ)", is_signature_pos_match, chuc_vu_goc)
+        if target_table:
+            col_paras = []
+            for row in target_table.rows:
+                if target_col_idx < len(row.cells):
+                    for p in row.cells[target_col_idx].paragraphs:
+                        if p.text.strip() and (not col_paras or p._element != col_paras[-1]._element): col_paras.append(p)
+                            
+            idx_dai_dien = -1
+            for i, p in enumerate(col_paras):
+                if "đạidiệnbênmua" in normalize_text(p.text):
+                    idx_dai_dien = i
+                    break
+                    
+            if idx_dai_dien != -1:
+                ten_nguoi_ky_word = col_paras[-1].text.strip()
+                if len(col_paras) >= idx_dai_dien + 3: chuc_vu_ky_word = col_paras[idx_dai_dien + 1].text.strip()
+        else:
+            found = False
+            lines = 0
+            for p in doc.paragraphs:
+                if "đạidiệnbênmua" in normalize_text(p.text):
+                    found = True
+                    lines = 0
+                    continue
+                if found:
+                    if p.text.strip():
+                        lines += 1
+                        if lines == 1: chuc_vu_ky_word = p.text.strip()
+                        if p.text.strip().isupper() and "GIÁM ĐỐC" not in p.text.upper():
+                            ten_nguoi_ky_word = p.text.strip()
+                            break
+                    if lines >= 5: break
+                    
+        if ten_nguoi_ky_word: show_result("Tên người ký (Cuối HĐ)", normalize_text(ten_dai_dien_ky) == normalize_text(ten_nguoi_ky_word), ten_dai_dien_ky, exp_basic)
+        if chuc_vu_ky_word: show_result("Chức vụ người ký (Cuối HĐ)", normalize_text(chuc_vu_goc) == normalize_text(chuc_vu_ky_word), chuc_vu_goc, exp_basic)
 
-            st.markdown("### II. Chi tiết Hàng hóa / Sản phẩm")
-            if not input_data['san_pham']:
-                st.info("Không tìm thấy danh sách sản phẩm trong Input gốc.")
-                
-            for idx, sp in enumerate(input_data['san_pham']):
-                ten_goc_norm = normalize_text(sp['ten'])
-                is_name_match = False
-                is_qty_price_match = False
-                qty_goc_norm = normalize_text(sp['so_luong'])
-                price_goc_norm = normalize_text(sp['don_gia'])
-                
-                for sp_word in danh_sach_sp_word:
-                    if ten_goc_norm[:30] in sp_word['ten'] and ten_goc_norm[-15:] in sp_word['ten']:
-                        is_name_match = True
-                        if qty_goc_norm == sp_word['so_luong'] and price_goc_norm in sp_word['don_gia']:
-                            is_qty_price_match = True
-                        break 
-                
-                show_result(f"Tên Sản Phẩm {idx+1}", is_name_match, sp['ten'])
-                
-                if is_qty_price_match:
-                    st.success(f"✅ **Giá & Số lượng SP {idx+1}:** Khớp toàn bộ thông số ({sp['chuoi_gia_goc']})")
-                else:
-                    has_error = True
-                    st.error(f"❌ **Giá & Số lượng SP {idx+1}:** SAI! -> Đã Auto-Fix. (Gốc: {sp['chuoi_gia_goc']})")
+        # --- QUÉT SẢN PHẨM ---
+        if not input_data['san_pham']:
+            exp_product.info("Không tìm thấy danh sách sản phẩm trong Input gốc.")
+            
+        for idx, sp in enumerate(input_data['san_pham']):
+            ten_goc_norm = normalize_text(sp['ten'])
+            is_name_match = False
+            is_qty_price_match = False
+            qty_goc_norm = normalize_text(sp['so_luong'])
+            price_goc_norm = normalize_text(sp['don_gia'])
+            
+            for sp_word in danh_sach_sp_word:
+                if ten_goc_norm[:30] in sp_word['ten'] and ten_goc_norm[-15:] in sp_word['ten']:
+                    is_name_match = True
+                    if qty_goc_norm == sp_word['so_luong'] and price_goc_norm in sp_word['don_gia']:
+                        is_qty_price_match = True
+                    break 
+            
+            show_result(f"Tên Sản Phẩm {idx+1}", is_name_match, sp['ten'], exp_product)
+            show_result(f"Giá & Số lượng SP {idx+1}", is_qty_price_match, sp['chuoi_gia_goc'], exp_product)
 
-            st.markdown("---")
-            if has_error:
-                st.info("🤖 Đã phát hiện lỗi sai! Tool đang tiến hành tự động thay thế bằng dữ liệu gốc (Giữ nguyên định dạng Word)...")
-                
-                doc_fixed = auto_fix_document(doc, input_data)
-                bio = io.BytesIO()
-                doc_fixed.save(bio)
-                
-                st.success("🎉 Đã sửa xong! Bạn hãy tải file Word hoàn chỉnh ở nút bên dưới:")
-                st.download_button(
-                    label="📥 TẢI XUỐNG FILE HỢP ĐỒNG ĐÃ SỬA CHUẨN",
-                    data=bio.getvalue(),
-                    file_name="Hop_Dong_Da_Fix.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
-            else:
-                st.success("🎉 Chúc mừng! Hợp đồng này chính xác 100%, không cần phải sửa gì thêm!")
+        # CẬP NHẬT DASHBOARD
+        with dashboard_placeholder.container():
+            d_col1, d_col2, d_col3 = st.columns(3)
+            d_col1.metric("🔍 TỔNG MỤC RÀ SOÁT", f"{total_checks} mục")
+            d_col2.metric("✅ KHỚP CHÍNH XÁC", f"{passed_checks} mục")
+            d_col3.metric("❌ LỖI ĐÃ TỰ ĐỘNG FIX", f"{failed_checks} mục")
+
+        st.markdown("---")
+        
+        # KẾT QUẢ VÀ TẢI XUỐNG
+        if has_error:
+            st.warning("🤖 Đã phát hiện và tự động sửa các lỗi sai. Bạn có thể tải bản Hợp đồng đã sửa chuẩn ngay bên dưới!")
+            doc_fixed = auto_fix_document(doc, input_data)
+            bio = io.BytesIO()
+            doc_fixed.save(bio)
+            
+            st.download_button(
+                label="📥 TẢI XUỐNG FILE HỢP ĐỒNG ĐÃ SỬA",
+                data=bio.getvalue(),
+                file_name="Hop_Dong_Da_Fix.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary"
+            )
+        else:
+            st.balloons() # Hiệu ứng bóng bay chúc mừng
+            st.success("🎉 TUYỆT VỜI! Hợp đồng này chính xác 100%, không cần phải sửa gì thêm!")
 
 if __name__ == "__main__":
     main()
