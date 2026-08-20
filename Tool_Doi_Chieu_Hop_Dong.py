@@ -7,7 +7,7 @@ import time
 
 # 1. CẤU HÌNH GIAO DIỆN & CSS CAO CẤP
 st.set_page_config(
-    page_title="Hệ Thống Kiểm Tra & Sửa Hợp Đồng Tự Động", 
+    page_title="App hỗ trợ kiểm tra và chỉnh sửa Hợp đồng", 
     page_icon="🤖", 
     layout="wide"
 )
@@ -46,8 +46,8 @@ st.markdown("""
         font-size: 0.95rem;
     }
     div.stTextArea textarea:focus {
-        border-color: #2563eb !important;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+        border-color: #10b981 !important;
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15) !important;
     }
     
     /* Khung kéo thả file uploader */
@@ -59,25 +59,25 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     div[data-testid="stFileUploader"]:hover {
-        border-color: #2563eb !important;
+        border-color: #10b981 !important;
         background-color: #f1f5f9 !important;
     }
     
-    /* Nút bấm chính (Primary Button) */
+    /* Nút bấm chính (Primary Button) - Đổi sang màu Xanh lá */
     .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
         border: none !important;
         border-radius: 12px !important;
         font-weight: 600 !important;
         font-size: 1.05rem !important;
         padding: 0.75rem 1.5rem !important;
         color: white !important;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3) !important;
         transition: all 0.3s ease !important;
     }
     .stButton > button[kind="primary"]:hover {
-        background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%) !important;
-        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4) !important;
+        background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+        box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4) !important;
         transform: translateY(-1px);
     }
     
@@ -304,7 +304,7 @@ def auto_fix_document(doc, input_data):
 
 # 4. GIAO DIỆN CHÍNH (UI/UX ĐÃ ĐƯỢC TỐI ƯU SANG TRỌNG)
 def main():
-    st.markdown("<h1>🤖 Hệ Thống Kiểm Tra & Sửa Hợp Đồng Tự Động</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>🤖 App hỗ trợ kiểm tra và chỉnh sửa Hợp đồng</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color: #64748b; font-size: 1.05rem; margin-bottom: 2rem;'>Công cụ rà soát thông tin đối chiếu giữa Zalo/Email và File Word hợp đồng, tự động phát hiện sai sót và chuẩn hóa định dạng.</p>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2, gap="large")
