@@ -5,8 +5,111 @@ import unicodedata
 import io 
 import time
 
-# 1. CẤU HÌNH GIAO DIỆN TRANG WEB
-st.set_page_config(page_title="Phần Mềm Kiểm Tra Hợp Đồng", page_icon="🤖", layout="wide")
+# 1. CẤU HÌNH GIAO DIỆN & CSS CAO CẤP
+st.set_page_config(
+    page_title="Hệ Thống Kiểm Tra & Sửa Hợp Đồng Tự Động", 
+    page_icon="🤖", 
+    layout="wide"
+)
+
+st.markdown("""
+<style>
+    /* Nhập Google Font: Be Vietnam Pro cho tiếng Việt cực đẹp và sắc nét */
+    @import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Be Vietnam Pro', sans-serif !important;
+    }
+    
+    /* Nền tổng thể nhẹ nhàng, hiện đại */
+    .main {
+        background-color: #f8fafc;
+        padding: 2rem 1.5rem;
+    }
+    
+    /* Tiêu đề chính */
+    h1 {
+        color: #1e293b;
+        font-weight: 700;
+        font-size: 2.2rem;
+        letter-spacing: -0.025em;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Tùy chỉnh ô nhập liệu text_area */
+    div.stTextArea textarea {
+        border-radius: 12px !important;
+        border: 1px solid #cbd5e1 !important;
+        background-color: #ffffff !important;
+        font-family: 'Be Vietnam Pro', sans-serif !important;
+        padding: 1rem !important;
+        font-size: 0.95rem;
+    }
+    div.stTextArea textarea:focus {
+        border-color: #2563eb !important;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+    }
+    
+    /* Khung kéo thả file uploader */
+    div[data-testid="stFileUploader"] {
+        border: 2px dashed #cbd5e1 !important;
+        border-radius: 12px !important;
+        background-color: #ffffff !important;
+        padding: 1.5rem !important;
+        transition: all 0.3s ease;
+    }
+    div[data-testid="stFileUploader"]:hover {
+        border-color: #2563eb !important;
+        background-color: #f1f5f9 !important;
+    }
+    
+    /* Nút bấm chính (Primary Button) */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        font-size: 1.05rem !important;
+        padding: 0.75rem 1.5rem !important;
+        color: white !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
+        transition: all 0.3s ease !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%) !important;
+        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4) !important;
+        transform: translateY(-1px);
+    }
+    
+    /* Hộp thống kê (Metrics Dashboard) */
+    [data-testid="stMetric"] {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        padding: 1.25rem;
+        border-radius: 16px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+        color: #64748b !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.75rem !important;
+        font-weight: 700 !important;
+        color: #0f172a !important;
+    }
+    
+    /* Expander kết quả */
+    details {
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 12px !important;
+        background-color: #ffffff !important;
+        margin-bottom: 1rem;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.02);
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # 2. CÁC HÀM XỬ LÝ DỮ LIỆU
 def normalize_text(text):
@@ -98,10 +201,8 @@ def auto_fix_document(doc, input_data):
                     
                     text_lower = normalize_text(p.text)
                     if "tổng(đãbaogồmvat)" in text_lower: 
-                        # FIX: Đã đổi False thành True để IN ĐẬM TOÀN BỘ CÂU
                         replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", True), (input_data['tong_tien'], True)])
                     elif "bằngchữ:" in text_lower: 
-                        # FIX: Đã đổi False thành True để IN ĐẬM TOÀN BỘ CÂU
                         replace_mixed_format(p, [("Bằng chữ: ", True), (input_data['bang_chu'], True)])
 
     # B. Sửa lỗi Thông tin cơ bản 
@@ -126,10 +227,8 @@ def auto_fix_document(doc, input_data):
         elif text_lower.startswith("4.3") and "địa điểm giao hàng" in text_lower:
             if passed_4_2: replace_text_keep_format(p, f"4.3.\tĐịa điểm giao hàng: {input_data['dia_chi_giao']}")
         elif "tổng (đã bao gồm vat):" in text_lower: 
-            # FIX: IN ĐẬM TOÀN BỘ
             replace_mixed_format(p, [("Tổng (đã bao gồm VAT): ", True), (input_data['tong_tien'], True)])
         elif "bằng chữ:" in text_lower and "đồng" in text_lower: 
-            # FIX: IN ĐẬM TOÀN BỘ
             replace_mixed_format(p, [("Bằng chữ: ", True), (input_data['bang_chu'], True)])
 
     # C. Sửa lỗi CHỮ KÝ VÀ CHỨC VỤ 
@@ -203,29 +302,32 @@ def auto_fix_document(doc, input_data):
 
     return doc
 
-# 4. GIAO DIỆN CHÍNH
+# 4. GIAO DIỆN CHÍNH (UI/UX ĐÃ ĐƯỢC TỐI ƯU SANG TRỌNG)
 def main():
-    st.title("🤖 Hệ Thống Kiểm Tra & Sửa Hợp Đồng Tự Động")
-    st.markdown("---")
+    st.markdown("<h1>🤖 Hệ Thống Kiểm Tra & Sửa Hợp Đồng Tự Động</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #64748b; font-size: 1.05rem; margin-bottom: 2rem;'>Công cụ rà soát thông tin đối chiếu giữa Zalo/Email và File Word hợp đồng, tự động phát hiện sai sót và chuẩn hóa định dạng.</p>", unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2, gap="large")
     with col1:
-        st.info("📝 **BƯỚC 1: Nhập thông tin gốc**")
-        input_text = st.text_area("Paste dữ liệu Zalo/Email vào đây:", height=250, label_visibility="collapsed")
+        st.markdown("### 📝 1. Nhập thông tin gốc")
+        input_text = st.text_area("Paste dữ liệu Zalo/Email vào đây:", height=280, placeholder="Dán nội dung đơn hàng, thông tin khách hàng, sản phẩm tại đây...", label_visibility="collapsed")
         
     with col2:
-        st.info("📄 **BƯỚC 2: Tải lên Hợp đồng (Word)**")
+        st.markdown("### 📄 2. Tải lên Hợp đồng mẫu")
         uploaded_file = st.file_uploader("Kéo thả file .docx vào đây", type=["docx"], label_visibility="collapsed")
+        st.markdown("<p style='color: #94a3b8; font-size: 0.85rem; margin-top: 0.5rem;'>Hỗ trợ định dạng Microsoft Word (.docx) tối đa 200MB.</p>", unsafe_allow_html=True)
         
-    if st.button("🚀 BẮT ĐẦU RÀ SOÁT & FIX LỖI", use_container_width=True, type="primary"):
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if st.button("🚀 BẮT ĐẦU RÀ SOÁT & FIX LỖI TỰ ĐỘNG", use_container_width=True, type="primary"):
         if not input_text or not uploaded_file:
-            st.error("⚠️ Vui lòng nhập đủ Thông tin gốc và Tải lên file Word!")
+            st.error("⚠️ Vui lòng nhập đầy đủ thông tin gốc ở Bước 1 và tải lên file Word ở Bước 2!")
             return
             
         progress_text = "Hệ thống đang quét từng dòng hợp đồng..."
         my_bar = st.progress(0, text=progress_text)
         for percent_complete in range(100):
-            time.sleep(0.01)
+            time.sleep(0.005)
             my_bar.progress(percent_complete + 1, text=progress_text)
         my_bar.empty()
 
@@ -256,7 +358,7 @@ def main():
         full_doc_normalized = normalize_text(full_doc_combined)
 
         st.markdown("---")
-        st.subheader("📊 BẢNG ĐIỀU KHIỂN KẾT QUẢ")
+        st.markdown("### 📊 BẢNG ĐIỀU KHIỂN KẾT QUẢ RÀ SOÁT")
         dashboard_placeholder = st.empty()
         
         total_checks = 0
@@ -269,14 +371,14 @@ def main():
             total_checks += 1
             if is_match:
                 passed_checks += 1
-                expander.success(f"✅ **{label}:** Khớp ({original_text})")
+                expander.success(f"✅ **{label}:** Khớp dữ liệu ({original_text})")
             else:
                 failed_checks += 1
                 has_error = True
-                expander.error(f"❌ **{label}:** LỖI! (Gốc: {original_text}) -> Đã Auto-Fix")
+                expander.error(f"❌ **{label}:** LỆCH DỮ LIỆU! (Gốc: {original_text}) -> Đã Auto-Fix")
 
-        exp_basic = st.expander("I. Thông tin cơ bản & Chữ ký", expanded=has_error)
-        exp_product = st.expander("II. Chi tiết Hàng hóa / Sản phẩm", expanded=has_error)
+        exp_basic = st.expander("📌 I. Thông tin cơ bản & Chữ ký", expanded=has_error)
+        exp_product = st.expander("🛒 II. Chi tiết Hàng hóa / Sản phẩm", expanded=has_error)
         
         # QUÉT THÔNG TIN CƠ BẢN
         show_result("Tên công ty", normalize_text(input_data['cong_ty']) in full_doc_normalized, input_data['cong_ty'], exp_basic)
@@ -372,21 +474,22 @@ def main():
         st.markdown("---")
         
         if has_error:
-            st.warning("🤖 Đã phát hiện và tự động sửa các lỗi sai. Bạn có thể tải bản Hợp đồng đã sửa chuẩn ngay bên dưới!")
+            st.warning("🤖 Hệ thống đã phát hiện và tự động sửa các lỗi sai thành công. Bạn có thể tải ngay bản Hợp đồng đã hoàn thiện bên dưới!")
             doc_fixed = auto_fix_document(doc, input_data)
             bio = io.BytesIO()
             doc_fixed.save(bio)
             
             st.download_button(
-                label="📥 TẢI XUỐNG FILE HỢP ĐỒNG ĐÃ SỬA",
+                label="📥 TẢI XUỐNG FILE HỢP ĐỒNG ĐÃ CHUẨN HÓA",
                 data=bio.getvalue(),
                 file_name="Hop_Dong_Da_Fix.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                type="primary"
+                type="primary",
+                use_container_width=True
             )
         else:
             st.balloons() 
-            st.success("🎉 TUYỆT VỜI! Hợp đồng này chính xác 100%, không cần phải sửa gì thêm!")
+            st.success("🎉 TUYỆT VỜI! Hợp đồng này khớp tuyệt đối 100%, không phát hiện điểm sai lệch nào!")
 
 if __name__ == "__main__":
     main()
