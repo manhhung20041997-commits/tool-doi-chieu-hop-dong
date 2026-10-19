@@ -122,13 +122,13 @@ def read_docx_to_text(uploaded_file):
             if row_content: full_text.append(" | ".join(row_content))
     return "\n".join(full_text)
 
-# 4. HÀM GỌI AI PHÂN TÍCH VÀ ĐỀ XUẤT
+# 4. HÀM GỌI AI PHÂN TÍCH VÀ ĐỀ XUẤT (Đã cập nhật model gemini-1.5-flash)
 def ai_analyze_and_resolve(orig_full_text, client_full_text, orig_diff, client_diff):
     if not api_key:
         return "⚠️ Vui lòng nhập Gemini API Key ở thanh bên (Sidebar) để AI phân tích."
     
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash')
     
     prompt = f"""
     Bạn là một Chuyên gia Pháp chế Doanh nghiệp cấp cao. 
