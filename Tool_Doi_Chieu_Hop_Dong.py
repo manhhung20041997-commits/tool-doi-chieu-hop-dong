@@ -185,4 +185,34 @@ def main():
             diff_modifications = []
             
             for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-                if tag
+                if tag == 'replace':
+                    diff_modifications.append({
+                        "orig": " \n".join(list_orig[i1:i2]),
+                        "client": " \n".join(list_client[j1:j2])
+                    })
+            
+            st.markdown("---")
+            st.markdown(f"### 📊 KẾT QUẢ THẨM ĐỊNH TỪ AI (Phát hiện {len(diff_modifications)} điểm thay đổi)")
+            
+            if len(diff_modifications) == 0:
+                st.balloons()
+                st.success("🎉 Tuyệt vời! Khách hàng giữ nguyên 100% nội dung so với bản gốc của công ty.")
+            else:
+                for idx, diff in enumerate(diff_modifications):
+                    with st.expander(f"🔍 Điểm thay đổi #{idx+1}: {diff['orig'][:50]}...", expanded=True):
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            st.markdown("**🔴 Nội dung trong Bản gốc MemoryZone:**")
+                            st.code(diff['orig'], language="text")
+                        with col_b:
+                            st.markdown("**🟢 Nội dung khách đã sửa:**")
+                            st.code(diff['client'], language="text")
+                            
+                        st.markdown("---")
+                        st.markdown("#### 🧠 AI Phân tích & Đề xuất Nội dung Cuối Cùng:")
+                        
+                        ai_feedback = ai_analyze_and_resolve(text_orig_full, text_client_full, diff['orig'], diff['client'])
+                        st.markdown(ai_feedback)
+
+if __name__ == "__main__":
+    main()
