@@ -19,13 +19,11 @@ st.markdown("""
         font-family: 'Be Vietnam Pro', sans-serif !important; 
     }
     
-    /* Nền tổng thể */
     .main { 
         background-color: #f8fafc; 
         padding: 1rem 2rem; 
     }
     
-    /* Thanh Header mô phỏng hệ thống MemoryZone */
     .mz-header {
         display: flex;
         align-items: center;
@@ -55,7 +53,6 @@ st.markdown("""
         padding-bottom: 4px;
     }
 
-    /* Tùy chỉnh khung upload và input */
     div[data-testid="stFileUploader"] {
         border: 2px dashed #cbd5e1 !important; 
         border-radius: 12px !important; 
@@ -66,7 +63,6 @@ st.markdown("""
         border-color: #059669 !important;
     }
 
-    /* Nút bấm chuẩn xanh lá MemoryZone */
     .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
         border: none !important; 
@@ -91,7 +87,6 @@ st.markdown("""
     }
 </style>
 
-<!-- Thanh Header giao diện MemoryZone (Đã tinh gọn) -->
 <div class="mz-header">
     <div class="mz-logo">
         ⚡memoryZone &nbsp;|&nbsp; <span style="font-size: 1rem; color: #334155; font-weight: 500;">Công cụ giấy tờ</span>
@@ -102,7 +97,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 2. CÀI ĐẶT SIDEBAR (Cấu hình API Key)
+# 2. CÀI ĐẶT SIDEBAR
 with st.sidebar:
     st.image("https://img.icons8.com/color/96/artificial-intelligence.png", width=64)
     st.title("Cấu hình AI Pháp Chế")
@@ -115,19 +110,79 @@ def read_docx_to_text(uploaded_file):
     doc = docx.Document(uploaded_file)
     full_text = []
     for p in doc.paragraphs:
-        if p.text.strip(): full_text.append(p.text.strip())
+        if p.text.strip():
+            full_text.append(p.text.strip())
     for table in doc.tables:
         for row in table.rows:
             row_content = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-            if row_content: full_text.append(" | ".join(row_content))
+            if row_content:
+                full_text.append(" | ".join(row_content))
     return "\n".join(full_text)
 
-# 4. HÀM GỌI AI PHÂN TÍCH VÀ ĐỀ XUẤT (Tự động chọn model khả dụng)
+# 4. HÀM GỌI AI PHÂN TÍCH VÀ ĐỀ XUẤT
 def ai_analyze_and_resolve(orig_full_text, client_full_text, orig_diff, client_diff):
     if not api_key:
         return "⚠️ Vui lòng nhập Gemini API Key ở thanh bên (Sidebar) để AI phân tích."
     
     try:
         genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        # Tự
+        prompt = f"""
+        Bạn là một Chuyên gia Pháp chế Doanh nghiệp cấp cao. 
+        Dựa vào BẢN HỢP ĐỒNG GỐC CỦA CÔNG TY (tiêu chuẩn pháp lý chính thức):
+        ---
+        {orig_full_text[:10000]}
+        ---
+
+        Khách hàng đã gửi lại bản hợp đồng đã qua điều chỉnh. Dưới đây là phần nội dung cụ thể bị thay đổi:
+        - NỘI DUNG GỐC CỦA CÔNG TY: "{orig_diff}"
+        - NỘI DUNG KHÁCH ĐÃ SỬA: "{client_diff}"
+
+        Hãy phân tích ngắn gọn bằng tiếng Việt theo cấu trúc sau:
+        1. **Đánh giá rủi ro:** Phân tích xem việc khách hàng sửa đổi điểm này mang lại lợi ích hay rủi ro/bất lợi gì cho công ty.
+        2. **Khuyên duyệt hay từ chối:** [NÊN DUYỆT / CẦN ĐÀM PHÁN LẠI / TỪ CHỐI]
+        3. **Nội dung cuối cùng đề xuất (Safe Clause):** Soạn thảo lại một câu văn bản pháp lý hoàn chỉnh, chuẩn chỉnh nhất để nhân viên copy phản hồi lại khách hàng.
+        """
+        
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"Lỗi kết nối AI: {str(e)}"
+
+# 5. GIAO DIỆN CHÍNH
+def main():
+    st.markdown("### 📋 Thẩm Định & Review Hợp Đồng Khách Hàng Phản Hồi")
+    st.markdown("<p style='color: #64748b; font-size: 0.95rem; margin-bottom: 1.5rem;'>So sánh chéo giữa bản hợp đồng gốc của MemoryZone và bản khách hàng đã chỉnh sửa để phát hiện rủi ro.</p>", unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2, gap="large")
+    with col1:
+        st.markdown("##### 📄 1. File Hợp đồng Gốc (Bản MemoryZone)")
+        file_orig = st.file_uploader("Tải lên bản gốc (.docx)", type=["docx"], key="orig")
+        
+    with col2:
+        st.markdown("##### 📝 2. File Hợp đồng Khách gửi lại")
+        file_client = st.file_uploader("Tải lên bản khách phản hồi (.docx)", type=["docx"], key="client")
+        
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if st.button("🚀 BẮT ĐẦU ĐỂ AI REVIEW & ĐỀ XUẤT NỘI DUNG", use_container_width=True, type="primary"):
+        if not file_orig or not file_client:
+            st.error("⚠️ Vui lòng tải lên đủ cả 2 file Hợp đồng!")
+            return
+        if not api_key:
+            st.warning("⚠️ Bạn chưa nhập Gemini API Key ở thanh bên trái (Sidebar). Vui lòng nhập để tính năng AI hoạt động.")
+            return
+            
+        with st.spinner("Hệ thống đang đối chiếu chính sách MemoryZone và phân tích các điểm chỉnh sửa..."):
+            text_orig_full = read_docx_to_text(file_orig)
+            text_client_full = read_docx_to_text(file_client)
+            
+            list_orig = text_orig_full.split('\n')
+            list_client = text_client_full.split('\n')
+            
+            matcher = difflib.SequenceMatcher(None, list_orig, list_client)
+            diff_modifications = []
+            
+            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+                if tag
