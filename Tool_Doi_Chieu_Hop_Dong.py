@@ -119,36 +119,45 @@ def read_docx_to_text(uploaded_file):
                 full_text.append(" | ".join(row_content))
     return "\n".join(full_text)
 
-# 4. HÀM GỌI AI PHÂN TÍCH VÀ ĐỀ XUẤT
+# 4. HÀM GỌI AI VỚI CƠ CHẾ TỰ ĐỘNG CHUYỂN MODEL DỰ PHÒNG (FAIL-SAFE FALLBACK)
 def ai_analyze_and_resolve(orig_full_text, client_full_text, orig_diff, client_diff):
     if not api_key:
         return "⚠️ Vui lòng nhập Gemini API Key ở thanh bên (Sidebar) để AI phân tích."
     
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        prompt = f"""
-        Bạn là một Chuyên gia Pháp chế Doanh nghiệp cấp cao. 
-        Dựa vào BẢN HỢP ĐỒNG GỐC CỦA CÔNG TY (tiêu chuẩn pháp lý chính thức):
-        ---
-        {orig_full_text[:10000]}
-        ---
+    genai.configure(api_key=api_key)
+    
+    # Danh sách các model sẽ thử lần lượt để tránh tuyệt đối lỗi 404
+    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-2.0-flash']
+    
+    prompt = f"""
+    Bạn là một Chuyên gia Pháp chế Doanh nghiệp cấp cao. 
+    Dựa vào BẢN HỢP ĐỒNG GỐC CỦA CÔNG TY (tiêu chuẩn pháp lý chính thức):
+    ---
+    {orig_full_text[:10000]}
+    ---
 
-        Khách hàng đã gửi lại bản hợp đồng đã qua điều chỉnh. Dưới đây là phần nội dung cụ thể bị thay đổi:
-        - NỘI DUNG GỐC CỦA CÔNG TY: "{orig_diff}"
-        - NỘI DUNG KHÁCH ĐÃ SỬA: "{client_diff}"
+    Khách hàng đã gửi lại bản hợp đồng đã qua điều chỉnh. Dưới đây là phần nội dung cụ thể bị thay đổi:
+    - NỘI DUNG GỐC CỦA CÔNG TY: "{orig_diff}"
+    - NỘI DUNG KHÁCH ĐÃ SỬA: "{client_diff}"
 
-        Hãy phân tích ngắn gọn bằng tiếng Việt theo cấu trúc sau:
-        1. **Đánh giá rủi ro:** Phân tích xem việc khách hàng sửa đổi điểm này mang lại lợi ích hay rủi ro/bất lợi gì cho công ty.
-        2. **Khuyên duyệt hay từ chối:** [NÊN DUYỆT / CẦN ĐÀM PHÁN LẠI / TỪ CHỐI]
-        3. **Nội dung cuối cùng đề xuất (Safe Clause):** Soạn thảo lại một câu văn bản pháp lý hoàn chỉnh, chuẩn chỉnh nhất để nhân viên copy phản hồi lại khách hàng.
-        """
-        
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"Lỗi kết nối AI: {str(e)}"
+    Hãy phân tích ngắn gọn bằng tiếng Việt theo cấu trúc sau:
+    1. **Đánh giá rủi ro:** Phân tích xem việc khách hàng sửa đổi điểm này mang lại lợi ích hay rủi ro/bất lợi gì cho công ty.
+    2. **Khuyên duyệt hay từ chối:** [NÊN DUYỆT / CẦN ĐÀM PHÁN LẠI / TỪ CHỐI]
+    3. **Nội dung cuối cùng đề xuất (Safe Clause):** Soạn thảo lại một câu văn bản pháp lý hoàn chỉnh, chuẩn chỉnh nhất để nhân viên copy phản hồi lại khách hàng.
+    """
+    
+    last_error = ""
+    for m_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(m_name)
+            response = model.generate_content(prompt)
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            last_error = str(e)
+            continue
+            
+    return f"⚠️ Lỗi kết nối AI với mọi model dự phòng. Chi tiết lỗi hệ thống từ Google: {last_error}"
 
 # 5. GIAO DIỆN CHÍNH
 def main():
