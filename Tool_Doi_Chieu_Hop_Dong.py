@@ -54,10 +54,6 @@ st.markdown("""
         border-bottom: 2px solid #059669;
         padding-bottom: 4px;
     }
-    .mz-nav-item {
-        color: #64748b;
-        cursor: pointer;
-    }
 
     /* Tùy chỉnh khung upload và input */
     div[data-testid="stFileUploader"] {
@@ -85,11 +81,6 @@ st.markdown("""
         box-shadow: 0 6px 16px rgba(16, 185, 129, 0.35) !important;
         transform: translateY(-1px);
     }
-
-    /* Thẻ card trắng bao bọc nội dung */
-    .css-1r6slb0, .element-container {
-        font-family: 'Be Vietnam Pro', sans-serif !important;
-    }
     
     details { 
         border: 1px solid #e2e8f0 !important; 
@@ -100,16 +91,12 @@ st.markdown("""
     }
 </style>
 
-<!-- Thanh Header giao diện MemoryZone giả lập -->
+<!-- Thanh Header giao diện MemoryZone (Đã tinh gọn) -->
 <div class="mz-header">
     <div class="mz-logo">
         ⚡memoryZone &nbsp;|&nbsp; <span style="font-size: 1rem; color: #334155; font-weight: 500;">Công cụ giấy tờ</span>
     </div>
     <div class="mz-nav">
-        <span class="mz-nav-item">Báo Giá</span>
-        <span class="mz-nav-item">BB Giao Hàng</span>
-        <span class="mz-nav-item">Phiếu Xuất Kho</span>
-        <span class="mz-nav-item">Đề Nghị TT</span>
         <span class="mz-nav-item-active">Hợp Đồng (Review AI)</span>
     </div>
 </div>
@@ -162,73 +149,3 @@ def ai_analyze_and_resolve(orig_full_text, client_full_text, orig_diff, client_d
     
     try:
         response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"Lỗi kết nối AI: {str(e)}"
-
-# 5. GIAO DIỆN CHÍNH
-def main():
-    st.markdown("### 📋 Thẩm Định & Review Hợp Đồng Khách Hàng Phản Hồi")
-    st.markdown("<p style='color: #64748b; font-size: 0.95rem; margin-bottom: 1.5rem;'>So sánh chéo giữa bản hợp đồng gốc của MemoryZone và bản khách hàng đã chỉnh sửa để phát hiện rủi ro.</p>", unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2, gap="large")
-    with col1:
-        st.markdown("##### 📄 1. File Hợp đồng Gốc (Bản MemoryZone)")
-        file_orig = st.file_uploader("Tải lên bản gốc (.docx)", type=["docx"], key="orig")
-        
-    with col2:
-        st.markdown("##### 📝 2. File Hợp đồng Khách gửi lại")
-        file_client = st.file_uploader("Tải lên bản khách phản hồi (.docx)", type=["docx"], key="client")
-        
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    if st.button("🚀 BẮT ĐẦU ĐỂ AI REVIEW & ĐỀ XUẤT NỘI DUNG", use_container_width=True, type="primary"):
-        if not file_orig or not file_client:
-            st.error("⚠️ Vui lòng tải lên đủ cả 2 file Hợp đồng!")
-            return
-        if not api_key:
-            st.warning("⚠️ Bạn chưa nhập Gemini API Key ở thanh bên trái (Sidebar). Vui lòng nhập để tính năng AI hoạt động.")
-            return
-            
-        with st.spinner("Hệ thống đang đối chiếu chính sách MemoryZone và phân tích các điểm chỉnh sửa..."):
-            text_orig_full = read_docx_to_text(file_orig)
-            text_client_full = read_docx_to_text(file_client)
-            
-            list_orig = text_orig_full.split('\n')
-            list_client = text_client_full.split('\n')
-            
-            matcher = difflib.SequenceMatcher(None, list_orig, list_client)
-            diff_modifications = []
-            
-            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-                if tag == 'replace':
-                    diff_modifications.append({
-                        "orig": " \n".join(list_orig[i1:i2]),
-                        "client": " \n".join(list_client[j1:j2])
-                    })
-            
-            st.markdown("---")
-            st.markdown(f"### 📊 KẾT QUẢ THẨM ĐỊNH TỪ AI (Phát hiện {len(diff_modifications)} điểm thay đổi)")
-            
-            if len(diff_modifications) == 0:
-                st.balloons()
-                st.success("🎉 Tuyệt vời! Khách hàng giữ nguyên 100% nội dung so với bản gốc của công ty.")
-            else:
-                for idx, diff in enumerate(diff_modifications):
-                    with st.expander(f"🔍 Điểm thay đổi #{idx+1}: {diff['orig'][:50]}...", expanded=True):
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            st.markdown("**🔴 Nội dung trong Bản gốc MemoryZone:**")
-                            st.code(diff['orig'], language="text")
-                        with col_b:
-                            st.markdown("**🟢 Nội dung khách đã sửa:**")
-                            st.code(diff['client'], language="text")
-                            
-                        st.markdown("---")
-                        st.markdown("#### 🧠 AI Phân tích & Đề xuất Nội dung Cuối Cùng:")
-                        
-                        ai_feedback = ai_analyze_and_resolve(text_orig_full, text_client_full, diff['orig'], diff['client'])
-                        st.markdown(ai_feedback)
-
-if __name__ == "__main__":
-    main()
