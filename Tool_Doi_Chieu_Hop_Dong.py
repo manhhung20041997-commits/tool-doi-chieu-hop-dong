@@ -1,7 +1,5 @@
 import streamlit as st
 import docx
-import re
-import difflib
 import google.generativeai as genai
 
 # 1. CẤU HÌNH GIAO DIỆN & GIAO DIỆN CHUẨN MEMORYZONE
@@ -78,12 +76,13 @@ st.markdown("""
         transform: translateY(-1px);
     }
     
-    details { 
-        border: 1px solid #e2e8f0 !important; 
-        border-radius: 12px !important; 
-        background-color: #ffffff !important; 
-        margin-bottom: 1rem; 
-        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    .report-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+        margin-top: 1rem;
     }
 </style>
 
@@ -103,7 +102,7 @@ with st.sidebar:
     st.title("Cấu hình AI Pháp Chế")
     api_key = st.text_input("Nhập Gemini API Key:", type="password", help="Lấy key miễn phí tại aistudio.google.com")
     st.markdown("---")
-    st.info("🟢 **Chế độ giao diện MemoryZone:**\nTải lên bản gốc và bản khách sửa để AI tự động trích xuất, soi lỗi lệch điều khoản và đề xuất phương án tối ưu.")
+    st.info("🟢 **Chế độ giao diện MemoryZone:**\nTải lên bản gốc và bản khách sửa để AI tự động trích xuất toàn diện, phát hiện điểm lệch và đề xuất phương án tối ưu trong 1 chạm.")
 
 # 3. HÀM ĐỌC NỘI DUNG WORD
 def read_docx_to_text(uploaded_file):
@@ -119,31 +118,30 @@ def read_docx_to_text(uploaded_file):
                 full_text.append(" | ".join(row_content))
     return "\n".join(full_text)
 
-# 4. HÀM GỌI AI VỚI CƠ CHẾ TỰ ĐỘNG CHUYỂN MODEL DỰ PHÒNG (FAIL-SAFE FALLBACK)
-def ai_analyze_and_resolve(orig_full_text, client_full_text, orig_diff, client_diff):
+# 4. HÀM GỌI AI PHÂN TÍCH TOÀN DIỆN (1 LẦN GỌI DUY NHẤT - AN TOÀN, KHÔNG TIMEOUT)
+def ai_review_full_contract(orig_text, client_text):
     if not api_key:
         return "⚠️ Vui lòng nhập Gemini API Key ở thanh bên (Sidebar) để AI phân tích."
     
     genai.configure(api_key=api_key)
-    
-    # Danh sách các model sẽ thử lần lượt để tránh tuyệt đối lỗi 404
     models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-2.0-flash']
     
     prompt = f"""
-    Bạn là một Chuyên gia Pháp chế Doanh nghiệp cấp cao. 
-    Dựa vào BẢN HỢP ĐỒNG GỐC CỦA CÔNG TY (tiêu chuẩn pháp lý chính thức):
+    Bạn là một Chuyên gia Pháp chế Doanh nghiệp cấp cao của công ty MemoryZone.
+    Dưới đây là BẢN HỢP ĐỒNG GỐC CỦA CÔNG TY (đóng vai trò chuẩn hóa chính sách pháp lý):
     ---
-    {orig_full_text[:10000]}
+    {orig_text[:15000]}
     ---
 
-    Khách hàng đã gửi lại bản hợp đồng đã qua điều chỉnh. Dưới đây là phần nội dung cụ thể bị thay đổi:
-    - NỘI DUNG GỐC CỦA CÔNG TY: "{orig_diff}"
-    - NỘI DUNG KHÁCH ĐÃ SỬA: "{client_diff}"
+    Và đây là BẢN HỢP ĐỒNG DO KHÁCH HÀNG/ĐỐI TÁC ĐÃ CHỈNH SỬA:
+    ---
+    {client_text[:15000]}
+    ---
 
-    Hãy phân tích ngắn gọn bằng tiếng Việt theo cấu trúc sau:
-    1. **Đánh giá rủi ro:** Phân tích xem việc khách hàng sửa đổi điểm này mang lại lợi ích hay rủi ro/bất lợi gì cho công ty.
-    2. **Khuyên duyệt hay từ chối:** [NÊN DUYỆT / CẦN ĐÀM PHÁN LẠI / TỪ CHỐI]
-    3. **Nội dung cuối cùng đề xuất (Safe Clause):** Soạn thảo lại một câu văn bản pháp lý hoàn chỉnh, chuẩn chỉnh nhất để nhân viên copy phản hồi lại khách hàng.
+    Hãy thực hiện phân tích đối chiếu chuyên sâu và trả lời bằng tiếng Việt theo cấu trúc rõ ràng:
+    1. **Tổng quan nhận định:** Khách hàng có thay đổi nhiều so với bản gốc không? Có điểm nào nguy hiểm cốt lõi không?
+    2. **Chi tiết các điểm khác biệt & Đánh giá rủi ro:** Liệt kê các điều khoản mà khách hàng đã âm thầm sửa đổi (thời hạn thanh toán, đơn giá, phạt vi phạm, tài khoản ngân hàng, v.v.), phân tích rõ rủi ro/bất lợi cho công ty.
+    3. **Nội dung cuối cùng đề xuất (Safe Clause):** Soạn thảo lại câu văn bản pháp lý hoàn chỉnh, chuẩn chỉnh nhất theo đúng tinh thần bản gốc để nhân viên copy phản hồi lại khách hàng ngay lập tức.
     """
     
     last_error = ""
@@ -157,12 +155,12 @@ def ai_analyze_and_resolve(orig_full_text, client_full_text, orig_diff, client_d
             last_error = str(e)
             continue
             
-    return f"⚠️ Lỗi kết nối AI với mọi model dự phòng. Chi tiết lỗi hệ thống từ Google: {last_error}"
+    return f"⚠️ Lỗi kết nối AI: {last_error}"
 
 # 5. GIAO DIỆN CHÍNH
 def main():
     st.markdown("### 📋 Thẩm Định & Review Hợp Đồng Khách Hàng Phản Hồi")
-    st.markdown("<p style='color: #64748b; font-size: 0.95rem; margin-bottom: 1.5rem;'>So sánh chéo giữa bản hợp đồng gốc của MemoryZone và bản khách hàng đã chỉnh sửa để phát hiện rủi ro.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #64748b; font-size: 0.95rem; margin-bottom: 1.5rem;'>So sánh toàn diện giữa bản hợp đồng gốc của MemoryZone và bản khách hàng chỉnh sửa để bóc tách rủi ro.</p>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2, gap="large")
     with col1:
@@ -183,45 +181,21 @@ def main():
             st.warning("⚠️ Bạn chưa nhập Gemini API Key ở thanh bên trái (Sidebar). Vui lòng nhập để tính năng AI hoạt động.")
             return
             
-        with st.spinner("Hệ thống đang đối chiếu chính sách MemoryZone và phân tích các điểm chỉnh sửa..."):
+        with st.spinner("AI đang đọc hiểu toàn bộ 2 file hợp đồng và lập báo cáo thẩm định..."):
             text_orig_full = read_docx_to_text(file_orig)
             text_client_full = read_docx_to_text(file_client)
             
-            list_orig = text_orig_full.split('\n')
-            list_client = text_client_full.split('\n')
-            
-            matcher = difflib.SequenceMatcher(None, list_orig, list_client)
-            diff_modifications = []
-            
-            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-                if tag == 'replace':
-                    diff_modifications.append({
-                        "orig": " \n".join(list_orig[i1:i2]),
-                        "client": " \n".join(list_client[j1:j2])
-                    })
+            # Gọi AI phân tích toàn diện 1 lần duy nhất
+            ai_report = ai_review_full_contract(text_orig_full, text_client_full)
             
             st.markdown("---")
-            st.markdown(f"### 📊 KẾT QUẢ THẨM ĐỊNH TỪ AI (Phát hiện {len(diff_modifications)} điểm thay đổi)")
+            st.markdown("### 📊 BÁO CÁO THẨM ĐỊNH & ĐỀ XUẤT PHÁP LÝ TỪ AI")
             
-            if len(diff_modifications) == 0:
-                st.balloons()
-                st.success("🎉 Tuyệt vời! Khách hàng giữ nguyên 100% nội dung so với bản gốc của công ty.")
-            else:
-                for idx, diff in enumerate(diff_modifications):
-                    with st.expander(f"🔍 Điểm thay đổi #{idx+1}: {diff['orig'][:50]}...", expanded=True):
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            st.markdown("**🔴 Nội dung trong Bản gốc MemoryZone:**")
-                            st.code(diff['orig'], language="text")
-                        with col_b:
-                            st.markdown("**🟢 Nội dung khách đã sửa:**")
-                            st.code(diff['client'], language="text")
-                            
-                        st.markdown("---")
-                        st.markdown("#### 🧠 AI Phân tích & Đề xuất Nội dung Cuối Cùng:")
-                        
-                        ai_feedback = ai_analyze_and_resolve(text_orig_full, text_client_full, diff['orig'], diff['client'])
-                        st.markdown(ai_feedback)
+            st.markdown(f"""
+            <div class="report-card">
+                {ai_report}
+            </div>
+            """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
