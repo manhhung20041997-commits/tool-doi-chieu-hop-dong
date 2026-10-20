@@ -110,7 +110,7 @@ with st.sidebar:
     st.title("Cấu hình AI Pháp Chế")
     api_key = st.text_input("Nhập Gemini API Key:", type="password", help="Lấy key miễn phí tại aistudio.google.com")
     st.markdown("---")
-    st.info("🟢 **Chế độ tối ưu siêu tốc:**\nApp gộp tất cả các điểm thay đổi và gửi 1 request duy nhất đến AI, giúp loại bỏ hoàn toàn lỗi timeout và 503.")
+    st.info("🟢 **Chế độ tối ưu siêu tốc:**\nĐã tinh chỉnh tốc độ phản hồi cực nhanh, trả kết quả tức thì không giới hạn thời gian chờ.")
 
 # 3. HÀM ĐỌC NỘI DUNG WORD THÀNH DANH SÁCH DÒNG
 def read_docx_to_lines(uploaded_file):
@@ -127,31 +127,26 @@ def read_docx_to_lines(uploaded_file):
                 lines.append(" | ".join(row_content))
     return lines
 
-# 4. HÀM GỌI AI GỘP CHUNG TẤT CẢ ĐIỂM KHÁC BIỆT (1 REQUEST DUY NHẤT)
+# 4. HÀM GỌI AI SIÊU TỐC (CÓ GIỚI HẠN TOKEN ĐỂ TRÁNH TREO MÁY)
 def ai_analyze_all_diffs(modifications):
     if not api_key:
         return "⚠️ Vui lòng nhập Gemini API Key."
     
     genai.configure(api_key=api_key)
     
-    # Xây dựng danh sách thay đổi gọn gàng
     summary_text = ""
     for idx, diff in enumerate(modifications):
-        summary_text += f"\n--- ĐIỂM THAY ĐỔI #{idx+1} ---\n"
-        summary_text += f"Bản gốc MemoryZone: {diff['orig']}\n"
-        summary_text += f"Bản khách hàng sửa: {diff['client']}\n"
+        summary_text += f"\n[Điểm #{idx+1}]\n- Gốc: {diff['orig']}\n- Khách sửa: {diff['client']}\n"
 
     prompt = f"""
-    Bạn là Chuyên gia Pháp chế Doanh nghiệp cấp cao của MemoryZone.
-    Dưới đây là danh sách các điểm mà khách hàng đã chỉnh sửa trong hợp đồng so với bản gốc của công ty:
+    Bạn là Chuyên gia Pháp chế Doanh nghiệp cấp cao của MemoryZone. Hãy thẩm định các điểm khách hàng sửa đổi sau đây và trả lời súc tích bằng tiếng Việt:
     {summary_text}
 
-    Hãy phân tích lần lượt từng điểm thay đổi trên bằng tiếng Việt theo đúng cấu trúc rõ ràng sau cho mỗi điểm:
-    
-    ### 🔍 Điểm thay đổi #[Số thứ tự]
-    - **Đánh giá rủi ro:** Phân tích ngắn gọn điểm sửa đổi này mang lại lợi ích hay rủi ro/bất lợi gì cho công ty.
-    - **Khuyên duyệt hay từ chối:** [NÊN DUYỆT / CẦN ĐÀM PHÁN LẠI / TỪ CHỐI]
-    - **Nội dung cuối cùng đề xuất (Safe Clause):** Soạn thảo lại câu văn bản pháp lý hoàn chỉnh, chuẩn chỉnh nhất theo đúng tinh thần bản gốc để nhân viên copy phản hồi lại khách hàng.
+    Với mỗi điểm, hãy trình bày ngắn gọn theo format:
+    ### Điểm #[Số]
+    - **Rủi ro:** [Đánh giá ngắn gọn]
+    - **Hướng xử lý:** [NÊN DUYỆT / ĐÀM PHÁN LẠI / TỪ CHỐI]
+    - **Safe Clause đề xuất:** [Câu văn bản chuẩn chỉnh để copy gửi khách]
     """
     
     models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-2.0-flash']
@@ -160,7 +155,9 @@ def ai_analyze_all_diffs(modifications):
     for m_name in models_to_try:
         try:
             model = genai.GenerativeModel(m_name)
-            response = model.generate_content(prompt)
+            # Giới hạn max_output_tokens để AI trả về siêu nhanh, không bị treo
+            generation_config = genai.types.GenerationConfig(max_output_tokens=2048, temperature=0.2)
+            response = model.generate_content(prompt, generation_config=generation_config)
             if response and response.text:
                 return response.text
         except Exception as e:
@@ -197,7 +194,6 @@ def main():
             lines_orig = read_docx_to_lines(file_orig)
             lines_client = read_docx_to_lines(file_client)
             
-            # Dùng difflib tìm chính xác các đoạn bị thay thế (replace)
             matcher = difflib.SequenceMatcher(None, lines_orig, lines_client)
             modifications = []
             
@@ -214,7 +210,6 @@ def main():
                 st.balloons()
                 st.success("🎉 Tuyệt vời! Khách hàng giữ nguyên 100% nội dung so với bản gốc của công ty.")
             else:
-                # Hiển thị song song bản gốc và bản khách sửa đối chiếu trước
                 for idx, diff in enumerate(modifications):
                     st.markdown(f"""
                     <div class="diff-box">
@@ -233,7 +228,6 @@ def main():
                 st.markdown("---")
                 st.markdown("### 🧠 ĐÁNH GIÁ RỦI RO & ĐỀ XUẤT TỪ AI PHÁP CHẾ")
                 
-                # Gọi AI 1 lần duy nhất cho toàn bộ danh sách thay đổi
                 with st.spinner("AI đang tổng hợp báo cáo và viết Safe Clause..."):
                     ai_report = ai_analyze_all_diffs(modifications)
                     st.markdown(f"""
