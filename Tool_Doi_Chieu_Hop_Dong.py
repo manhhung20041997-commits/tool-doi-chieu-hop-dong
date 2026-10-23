@@ -103,7 +103,7 @@ with st.sidebar:
     st.title("Cấu hình AI Pháp Chế")
     api_key = st.text_input("Nhập Gemini API Key:", type="password", help="Lấy key miễn phí tại aistudio.google.com")
     st.markdown("---")
-    st.info("🟢 **Chế độ Safe Connect:**\nTối ưu hóa tốc độ, tự động ngắt thời gian chờ và chống treo hệ thống.")
+    st.info("🟢 **Chế độ Auto-Model Connect:**\nTự động quét và kết nối model AI tương thích nhất với API key của bạn.")
 
 # 3. HÀM ĐỌC NỘI DUNG WORD
 def read_docx_full(uploaded_file):
@@ -119,14 +119,28 @@ def read_docx_full(uploaded_file):
                 content.append(" | ".join(row_content))
     return "\n".join(content)
 
-# 4. HÀM GỌI AI AN TOÀN (CÓ XỬ LÝ NGOẠI LỆ, KHÔNG BAO GIỜ TREO)
+# 4. HÀM GỌI AI VỚI CƠ CHẾ TỰ ĐỘNG DÒ TÌM MODEL KHẢ DỤNG
 def ai_smart_compare(orig_text, client_text):
     if not api_key:
         return "⚠️ Vui lòng nhập Gemini API Key ở thanh bên (Sidebar)."
     
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Tự động quét tìm model hỗ trợ generateContent trên tài khoản
+        target_model = 'gemini-1.5-flash'
+        try:
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            for m_name in available_models:
+                if 'flash' in m_name:
+                    target_model = m_name
+                    break
+            if not target_model and available_models:
+                target_model = available_models[0]
+        except Exception:
+            pass
+
+        model = genai.GenerativeModel(target_model)
         
         prompt = f"""
         Bạn là Chuyên gia Pháp chế Doanh nghiệp cấp cao của công ty MemoryZone. 
@@ -180,13 +194,12 @@ def main():
             st.warning("⚠️ Bạn chưa nhập Gemini API Key ở thanh bên (Sidebar).")
             return
             
-        # Dùng st.status thay vì st.spinner để hiển thị tiến trình rõ ràng và không bị treo ngầm
         with st.status("🔄 Đang xử lý...", expanded=True) as status:
             st.write("Đang đọc nội dung các file Word...")
             text_orig = read_docx_full(file_orig)
             text_client = read_docx_full(file_client)
             
-            st.write("Đang gửi dữ liệu sang AI phân tích và đối chiếu...")
+            st.write("Đang quét model AI và gửi dữ liệu đối chiếu...")
             ai_report = ai_smart_compare(text_orig, text_client)
             
             status.update(label="✅ Hoàn thành phân tích!", state="complete", expanded=False)
