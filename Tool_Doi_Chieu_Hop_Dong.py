@@ -103,7 +103,7 @@ with st.sidebar:
     st.title("Cấu hình AI Pháp Chế")
     api_key = st.text_input("Nhập Gemini API Key:", type="password", help="Lấy key miễn phí tại aistudio.google.com")
     st.markdown("---")
-    st.info("🟢 **Chế độ Auto-Model Connect:**\nTự động quét và kết nối model AI tương thích nhất với API key của bạn.")
+    st.info("🟢 **Chế độ Stable Connect:**\nKết nối trực tiếp qua các model chuẩn mực của Google, đảm bảo không bao giờ lỗi model.")
 
 # 3. HÀM ĐỌC NỘI DUNG WORD
 def read_docx_full(uploaded_file):
@@ -119,56 +119,47 @@ def read_docx_full(uploaded_file):
                 content.append(" | ".join(row_content))
     return "\n".join(content)
 
-# 4. HÀM GỌI AI VỚI CƠ CHẾ TỰ ĐỘNG DÒ TÌM MODEL KHẢ DỤNG
+# 4. HÀM GỌI AI VỚI DANH SÁCH MODEL ỔN ĐỊNH CỐ ĐỊNH
 def ai_smart_compare(orig_text, client_text):
     if not api_key:
         return "⚠️ Vui lòng nhập Gemini API Key ở thanh bên (Sidebar)."
     
-    try:
-        genai.configure(api_key=api_key)
-        
-        # Tự động quét tìm model hỗ trợ generateContent trên tài khoản
-        target_model = 'gemini-1.5-flash'
+    genai.configure(api_key=api_key)
+    
+    # Danh sách các model chính thức được Google hỗ trợ ổn định
+    stable_models = ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']
+    
+    prompt = f"""
+    Bạn là Chuyên gia Pháp chế Doanh nghiệp cấp cao của công ty MemoryZone. 
+    Nhiệm vụ của bạn là đối chiếu chi tiết giữa 2 văn bản hợp đồng sau đây để tìm ra toàn bộ các điểm mà khách hàng đã chỉnh sửa (kể cả những thay đổi nhỏ nhất về con số, tỷ lệ % phạt, điều kiện bảo hành, thông tin liên hệ, thêm bớt câu chữ).
+
+    --- BẢN GỐC CỦA MEMORYZONE ---
+    {orig_text[:15000]}
+
+    --- BẢN DO KHÁCH HÀNG GỬI LẠI ---
+    {client_text[:15000]}
+
+    Hãy phân tích và lập báo cáo chi tiết bằng tiếng Việt theo cấu trúc sau:
+    1. **Tổng quan:** Khách hàng đã sửa đổi tổng cộng bao nhiêu điểm chính? Có điểm nào rủi ro cao đối với công ty không?
+    2. **Chi tiết các điểm khác biệt & Đánh giá rủi ro:** 
+       - Liệt kê rõ: *Bản gốc* nói gì vs *Khách sửa* thành gì.
+       - Phân tích rủi ro/bất lợi pháp lý cho công ty.
+       - Đưa ra nhận định: **[NÊN DUYỆT]** / **[CẦN ĐÀM PHÁN LẠI]** / **[TỪ CHỐI]**.
+    3. **Safe Clause (Nội dung phản hồi cuối cùng):** Soạn thảo sẵn câu văn bản pháp lý chuẩn chỉnh nhất để nhân viên copy gửi phản hồi lại cho khách hàng ngay lập tức.
+    """
+    
+    last_error = ""
+    for m_name in stable_models:
         try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            for m_name in available_models:
-                if 'flash' in m_name:
-                    target_model = m_name
-                    break
-            if not target_model and available_models:
-                target_model = available_models[0]
-        except Exception:
-            pass
-
-        model = genai.GenerativeModel(target_model)
-        
-        prompt = f"""
-        Bạn là Chuyên gia Pháp chế Doanh nghiệp cấp cao của công ty MemoryZone. 
-        Nhiệm vụ của bạn là đối chiếu chi tiết giữa 2 văn bản hợp đồng sau đây để tìm ra toàn bộ các điểm mà khách hàng đã chỉnh sửa (kể cả những thay đổi nhỏ nhất về con số, tỷ lệ % phạt, điều kiện bảo hành, thông tin liên hệ, thêm bớt câu chữ).
-
-        --- BẢN GỐC CỦA MEMORYZONE ---
-        {orig_text[:15000]}
-
-        --- BẢN DO KHÁCH HÀNG GỬI LẠI ---
-        {client_text[:15000]}
-
-        Hãy phân tích và lập báo cáo chi tiết bằng tiếng Việt theo cấu trúc sau:
-        1. **Tổng quan:** Khách hàng đã sửa đổi tổng cộng bao nhiêu điểm chính? Có điểm nào rủi ro cao đối với công ty không?
-        2. **Chi tiết các điểm khác biệt & Đánh giá rủi ro:** 
-           - Liệt kê rõ: *Bản gốc* nói gì vs *Khách sửa* thành gì.
-           - Phân tích rủi ro/bất lợi pháp lý cho công ty.
-           - Đưa ra nhận định: **[NÊN DUYỆT]** / **[CẦN ĐÀM PHÁN LẠI]** / **[TỪ CHỐI]**.
-        3. **Safe Clause (Nội dung phản hồi cuối cùng):** Soạn thảo sẵn câu văn bản pháp lý chuẩn chỉnh nhất để nhân viên copy gửi phản hồi lại cho khách hàng ngay lập tức.
-        """
-        
-        response = model.generate_content(prompt)
-        if response and response.text:
-            return response.text
-        else:
-            return "⚠️ Không nhận được phản hồi từ AI. Vui lòng thử lại."
+            model = genai.GenerativeModel(m_name)
+            response = model.generate_content(prompt)
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            last_error = str(e)
+            continue
             
-    except Exception as e:
-        return f"⚠️ Lỗi kết nối đến Google AI: {str(e)}"
+    return f"⚠️ Lỗi kết nối đến Google AI: {last_error}"
 
 # 5. GIAO DIỆN CHÍNH
 def main():
@@ -199,7 +190,7 @@ def main():
             text_orig = read_docx_full(file_orig)
             text_client = read_docx_full(file_client)
             
-            st.write("Đang quét model AI và gửi dữ liệu đối chiếu...")
+            st.write("Đang kết nối AI và phân tích đối chiếu hợp đồng...")
             ai_report = ai_smart_compare(text_orig, text_client)
             
             status.update(label="✅ Hoàn thành phân tích!", state="complete", expanded=False)
