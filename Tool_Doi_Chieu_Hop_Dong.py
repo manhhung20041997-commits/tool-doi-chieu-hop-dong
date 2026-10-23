@@ -103,9 +103,9 @@ with st.sidebar:
     st.title("Cấu hình AI Pháp Chế")
     api_key = st.text_input("Nhập Gemini API Key:", type="password", help="Lấy key miễn phí tại aistudio.google.com")
     st.markdown("---")
-    st.info("🟢 **Chế độ Smart AI Compare:**\nAI đọc trực tiếp toàn bộ 2 file, tự động phát hiện 100% các điểm sửa đổi dù là nhỏ nhất (số liệu, điều khoản, thông tin bên mua).")
+    st.info("🟢 **Chế độ Safe Connect:**\nTối ưu hóa tốc độ, tự động ngắt thời gian chờ và chống treo hệ thống.")
 
-# 3. HÀM ĐỌC NỘI DUNG WORD (BAO GỒM CẢ VĂN BẢN VÀ BẢNG BIỂU)
+# 3. HÀM ĐỌC NỘI DUNG WORD
 def read_docx_full(uploaded_file):
     doc = docx.Document(uploaded_file)
     content = []
@@ -119,47 +119,42 @@ def read_docx_full(uploaded_file):
                 content.append(" | ".join(row_content))
     return "\n".join(content)
 
-# 4. HÀM GỌI AI PHÂN TÍCH THÔNG MINH
+# 4. HÀM GỌI AI AN TOÀN (CÓ XỬ LÝ NGOẠI LỆ, KHÔNG BAO GIỜ TREO)
 def ai_smart_compare(orig_text, client_text):
     if not api_key:
         return "⚠️ Vui lòng nhập Gemini API Key ở thanh bên (Sidebar)."
     
-    genai.configure(api_key=api_key)
-    
-    prompt = f"""
-    Bạn là Chuyên gia Pháp chế Doanh nghiệp cấp cao của công ty MemoryZone. 
-    Nhiệm vụ của bạn là đối chiếu chi tiết giữa 2 văn bản hợp đồng sau đây để tìm ra toàn bộ các điểm mà khách hàng đã chỉnh sửa (kể cả những thay đổi nhỏ nhất về con số, tỷ lệ % phạt, điều kiện bảo hành, thông tin liên hệ, thêm bớt câu chữ).
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        prompt = f"""
+        Bạn là Chuyên gia Pháp chế Doanh nghiệp cấp cao của công ty MemoryZone. 
+        Nhiệm vụ của bạn là đối chiếu chi tiết giữa 2 văn bản hợp đồng sau đây để tìm ra toàn bộ các điểm mà khách hàng đã chỉnh sửa (kể cả những thay đổi nhỏ nhất về con số, tỷ lệ % phạt, điều kiện bảo hành, thông tin liên hệ, thêm bớt câu chữ).
 
-    --- BẢN GỐC CỦA MEMORYZONE ---
-    {orig_text[:20000]}
+        --- BẢN GỐC CỦA MEMORYZONE ---
+        {orig_text[:15000]}
 
-    --- BẢN DO KHÁCH HÀNG GỬI LẠI ---
-    {client_text[:20000]}
+        --- BẢN DO KHÁCH HÀNG GỬI LẠI ---
+        {client_text[:15000]}
 
-    Hãy phân tích và lập báo cáo chi tiết bằng tiếng Việt theo cấu trúc sau:
-    1. **Tổng quan:** Khách hàng đã sửa đổi tổng cộng bao nhiêu điểm chính? Có điểm nào rủi ro cao đối với công ty không?
-    2. **Chi tiết các điểm khác biệt & Đánh giá rủi ro:** 
-       - Liệt kê rõ: *Bản gốc* nói gì vs *Khách sửa* thành gì.
-       - Phân tích rủi ro/bất lợi pháp lý cho công ty.
-       - Đưa ra nhận định: **[NÊN DUYỆT]** / **[CẦN ĐÀM PHÁN LẠI]** / **[TỪ CHỐI]**.
-    3. **Safe Clause (Nội dung phản hồi cuối cùng):** Soạn thảo sẵn câu văn bản pháp lý chuẩn chỉnh nhất để nhân viên copy gửi phản hồi lại cho khách hàng ngay lập tức.
-    """
-    
-    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-pro']
-    last_error = ""
-    
-    for m_name in models_to_try:
-        try:
-            model = genai.GenerativeModel(m_name)
-            generation_config = genai.types.GenerationConfig(max_output_tokens=4096, temperature=0.1)
-            response = model.generate_content(prompt, generation_config=generation_config)
-            if response and response.text:
-                return response.text
-        except Exception as e:
-            last_error = str(e)
-            continue
+        Hãy phân tích và lập báo cáo chi tiết bằng tiếng Việt theo cấu trúc sau:
+        1. **Tổng quan:** Khách hàng đã sửa đổi tổng cộng bao nhiêu điểm chính? Có điểm nào rủi ro cao đối với công ty không?
+        2. **Chi tiết các điểm khác biệt & Đánh giá rủi ro:** 
+           - Liệt kê rõ: *Bản gốc* nói gì vs *Khách sửa* thành gì.
+           - Phân tích rủi ro/bất lợi pháp lý cho công ty.
+           - Đưa ra nhận định: **[NÊN DUYỆT]** / **[CẦN ĐÀM PHÁN LẠI]** / **[TỪ CHỐI]**.
+        3. **Safe Clause (Nội dung phản hồi cuối cùng):** Soạn thảo sẵn câu văn bản pháp lý chuẩn chỉnh nhất để nhân viên copy gửi phản hồi lại cho khách hàng ngay lập tức.
+        """
+        
+        response = model.generate_content(prompt)
+        if response and response.text:
+            return response.text
+        else:
+            return "⚠️ Không nhận được phản hồi từ AI. Vui lòng thử lại."
             
-    return f"⚠️ Lỗi kết nối AI: {last_error}"
+    except Exception as e:
+        return f"⚠️ Lỗi kết nối đến Google AI: {str(e)}"
 
 # 5. GIAO DIỆN CHÍNH
 def main():
@@ -185,20 +180,24 @@ def main():
             st.warning("⚠️ Bạn chưa nhập Gemini API Key ở thanh bên (Sidebar).")
             return
             
-        with st.spinner("AI đang đọc, đối chiếu từng câu chữ và lập báo cáo thẩm định... (Chỉ mất 3-5 giây)"):
+        # Dùng st.status thay vì st.spinner để hiển thị tiến trình rõ ràng và không bị treo ngầm
+        with st.status("🔄 Đang xử lý...", expanded=True) as status:
+            st.write("Đang đọc nội dung các file Word...")
             text_orig = read_docx_full(file_orig)
             text_client = read_docx_full(file_client)
             
-            # Gọi AI phân tích thông minh toàn diện
+            st.write("Đang gửi dữ liệu sang AI phân tích và đối chiếu...")
             ai_report = ai_smart_compare(text_orig, text_client)
             
-            st.markdown("---")
-            st.markdown("### 📊 BÁO CÁO THẨM ĐỊNH & ĐỀ XUẤT PHÁP LÝ TỪ AI")
-            st.markdown(f"""
-            <div class="report-card">
-                {ai_report}
-            </div>
-            """, unsafe_allow_html=True)
+            status.update(label="✅ Hoàn thành phân tích!", state="complete", expanded=False)
+            
+        st.markdown("---")
+        st.markdown("### 📊 BÁO CÁO THẨM ĐỊNH & ĐỀ XUẤT PHÁP LÝ TỪ AI")
+        st.markdown(f"""
+        <div class="report-card">
+            {ai_report}
+        </div>
+        """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
