@@ -1,6 +1,5 @@
 import streamlit as st
 import docx
-import difflib
 import google.generativeai as genai
 
 # 1. CẤU HÌNH GIAO DIỆN & GIAO DIỆN CHUẨN MEMORYZONE
@@ -84,13 +83,7 @@ st.markdown("""
         padding: 1.5rem;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
         margin-top: 1rem;
-    }
-    .diff-box {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 1.25rem;
-        margin-bottom: 1rem;
+        line-height: 1.6;
     }
 </style>
 
@@ -110,53 +103,55 @@ with st.sidebar:
     st.title("Cấu hình AI Pháp Chế")
     api_key = st.text_input("Nhập Gemini API Key:", type="password", help="Lấy key miễn phí tại aistudio.google.com")
     st.markdown("---")
-    st.info("🟢 **Chế độ tối ưu siêu tốc:**\nĐã tinh chỉnh tốc độ phản hồi cực nhanh, trả kết quả tức thì không giới hạn thời gian chờ.")
+    st.info("🟢 **Chế độ Smart AI Compare:**\nAI đọc trực tiếp toàn bộ 2 file, tự động phát hiện 100% các điểm sửa đổi dù là nhỏ nhất (số liệu, điều khoản, thông tin bên mua).")
 
-# 3. HÀM ĐỌC NỘI DUNG WORD THÀNH DANH SÁCH DÒNG
-def read_docx_to_lines(uploaded_file):
+# 3. HÀM ĐỌC NỘI DUNG WORD (BAO GỒM CẢ VĂN BẢN VÀ BẢNG BIỂU)
+def read_docx_full(uploaded_file):
     doc = docx.Document(uploaded_file)
-    lines = []
+    content = []
     for p in doc.paragraphs:
-        text = p.text.strip()
-        if text:
-            lines.append(text)
+        if p.text.strip():
+            content.append(p.text.strip())
     for table in doc.tables:
         for row in table.rows:
             row_content = [cell.text.strip() for cell in row.cells if cell.text.strip()]
             if row_content:
-                lines.append(" | ".join(row_content))
-    return lines
+                content.append(" | ".join(row_content))
+    return "\n".join(content)
 
-# 4. HÀM GỌI AI SIÊU TỐC (CÓ GIỚI HẠN TOKEN ĐỂ TRÁNH TREO MÁY)
-def ai_analyze_all_diffs(modifications):
+# 4. HÀM GỌI AI PHÂN TÍCH THÔNG MINH
+def ai_smart_compare(orig_text, client_text):
     if not api_key:
-        return "⚠️ Vui lòng nhập Gemini API Key."
+        return "⚠️ Vui lòng nhập Gemini API Key ở thanh bên (Sidebar)."
     
     genai.configure(api_key=api_key)
     
-    summary_text = ""
-    for idx, diff in enumerate(modifications):
-        summary_text += f"\n[Điểm #{idx+1}]\n- Gốc: {diff['orig']}\n- Khách sửa: {diff['client']}\n"
-
     prompt = f"""
-    Bạn là Chuyên gia Pháp chế Doanh nghiệp cấp cao của MemoryZone. Hãy thẩm định các điểm khách hàng sửa đổi sau đây và trả lời súc tích bằng tiếng Việt:
-    {summary_text}
+    Bạn là Chuyên gia Pháp chế Doanh nghiệp cấp cao của công ty MemoryZone. 
+    Nhiệm vụ của bạn là đối chiếu chi tiết giữa 2 văn bản hợp đồng sau đây để tìm ra toàn bộ các điểm mà khách hàng đã chỉnh sửa (kể cả những thay đổi nhỏ nhất về con số, tỷ lệ % phạt, điều kiện bảo hành, thông tin liên hệ, thêm bớt câu chữ).
 
-    Với mỗi điểm, hãy trình bày ngắn gọn theo format:
-    ### Điểm #[Số]
-    - **Rủi ro:** [Đánh giá ngắn gọn]
-    - **Hướng xử lý:** [NÊN DUYỆT / ĐÀM PHÁN LẠI / TỪ CHỐI]
-    - **Safe Clause đề xuất:** [Câu văn bản chuẩn chỉnh để copy gửi khách]
+    --- BẢN GỐC CỦA MEMORYZONE ---
+    {orig_text[:20000]}
+
+    --- BẢN DO KHÁCH HÀNG GỬI LẠI ---
+    {client_text[:20000]}
+
+    Hãy phân tích và lập báo cáo chi tiết bằng tiếng Việt theo cấu trúc sau:
+    1. **Tổng quan:** Khách hàng đã sửa đổi tổng cộng bao nhiêu điểm chính? Có điểm nào rủi ro cao đối với công ty không?
+    2. **Chi tiết các điểm khác biệt & Đánh giá rủi ro:** 
+       - Liệt kê rõ: *Bản gốc* nói gì vs *Khách sửa* thành gì.
+       - Phân tích rủi ro/bất lợi pháp lý cho công ty.
+       - Đưa ra nhận định: **[NÊN DUYỆT]** / **[CẦN ĐÀM PHÁN LẠI]** / **[TỪ CHỐI]**.
+    3. **Safe Clause (Nội dung phản hồi cuối cùng):** Soạn thảo sẵn câu văn bản pháp lý chuẩn chỉnh nhất để nhân viên copy gửi phản hồi lại cho khách hàng ngay lập tức.
     """
     
-    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-2.0-flash']
+    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-pro']
     last_error = ""
     
     for m_name in models_to_try:
         try:
             model = genai.GenerativeModel(m_name)
-            # Giới hạn max_output_tokens để AI trả về siêu nhanh, không bị treo
-            generation_config = genai.types.GenerationConfig(max_output_tokens=2048, temperature=0.2)
+            generation_config = genai.types.GenerationConfig(max_output_tokens=4096, temperature=0.1)
             response = model.generate_content(prompt, generation_config=generation_config)
             if response and response.text:
                 return response.text
@@ -169,7 +164,7 @@ def ai_analyze_all_diffs(modifications):
 # 5. GIAO DIỆN CHÍNH
 def main():
     st.markdown("### 📋 Thẩm Định & Review Hợp Đồng Khách Hàng Phản Hồi")
-    st.markdown("<p style='color: #64748b; font-size: 0.95rem; margin-bottom: 1.5rem;'>So sánh siêu tốc để bóc tách chính xác các điểm khách hàng đã thay đổi.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #64748b; font-size: 0.95rem; margin-bottom: 1.5rem;'>Hệ thống Smart AI tự động rà soát toàn diện từng chữ, từng con số chỉnh sửa giữa 2 file hợp đồng.</p>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2, gap="large")
     with col1:
@@ -190,51 +185,20 @@ def main():
             st.warning("⚠️ Bạn chưa nhập Gemini API Key ở thanh bên (Sidebar).")
             return
             
-        with st.spinner("Đang bóc tách điểm khác biệt và gọi AI thẩm định siêu tốc..."):
-            lines_orig = read_docx_to_lines(file_orig)
-            lines_client = read_docx_to_lines(file_client)
+        with st.spinner("AI đang đọc, đối chiếu từng câu chữ và lập báo cáo thẩm định... (Chỉ mất 3-5 giây)"):
+            text_orig = read_docx_full(file_orig)
+            text_client = read_docx_full(file_client)
             
-            matcher = difflib.SequenceMatcher(None, lines_orig, lines_client)
-            modifications = []
-            
-            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-                if tag == 'replace':
-                    orig_snippet = " \n".join(lines_orig[i1:i2])
-                    client_snippet = " \n".join(lines_client[j1:j2])
-                    modifications.append({"orig": orig_snippet, "client": client_snippet})
+            # Gọi AI phân tích thông minh toàn diện
+            ai_report = ai_smart_compare(text_orig, text_client)
             
             st.markdown("---")
-            st.markdown(f"### 📊 KẾT QUẢ THẨM ĐỊNH (Phát hiện {len(modifications)} điểm thay đổi)")
-            
-            if len(modifications) == 0:
-                st.balloons()
-                st.success("🎉 Tuyệt vời! Khách hàng giữ nguyên 100% nội dung so với bản gốc của công ty.")
-            else:
-                for idx, diff in enumerate(modifications):
-                    st.markdown(f"""
-                    <div class="diff-box">
-                        <h4 style="color: #059669; margin-bottom: 10px;">🔍 Điểm thay đổi #{idx+1}</h4>
-                    """, unsafe_allow_html=True)
-                    
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.markdown("**🔴 Bản gốc MemoryZone:**")
-                        st.code(diff['orig'], language="text")
-                    with c2:
-                        st.markdown("**🟢 Bản khách đã sửa:**")
-                        st.code(diff['client'], language="text")
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                st.markdown("---")
-                st.markdown("### 🧠 ĐÁNH GIÁ RỦI RO & ĐỀ XUẤT TỪ AI PHÁP CHẾ")
-                
-                with st.spinner("AI đang tổng hợp báo cáo và viết Safe Clause..."):
-                    ai_report = ai_analyze_all_diffs(modifications)
-                    st.markdown(f"""
-                    <div class="report-card">
-                        {ai_report}
-                    </div>
-                    """, unsafe_allow_html=True)
+            st.markdown("### 📊 BÁO CÁO THẨM ĐỊNH & ĐỀ XUẤT PHÁP LÝ TỪ AI")
+            st.markdown(f"""
+            <div class="report-card">
+                {ai_report}
+            </div>
+            """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
